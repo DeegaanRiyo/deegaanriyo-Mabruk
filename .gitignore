@@ -36,6 +36,15 @@ yarn-error.log*
 # vercel
 .vercel
 
+# seed / test documents (not needed in deployment)
+public/stock_seed_document.pdf
+public/tawakall_test_receipt*.pdf
+public/mabruk_favicon.zip
+public/README.txt
+
+# supabase local config (contains project ref)
+supabase/.temp/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

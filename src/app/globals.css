@@ -1,26 +1,129 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #FAF8FB;
+  --foreground: #1E1626;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* ── Canvas ─────────────────────────────────────── */
+  --color-background:   #FAF8FB;   /* warm off-white */
+  --color-surface:      #FFFFFF;   /* cards, panels */
+  --color-foreground:   #1E1626;   /* near-black, purple-tinted */
+
+  /* ── Brand purple ───────────────────────────────── */
+  --color-primary:      #5B2A86;
+  --color-primary-hover:#4A2270;
+  --color-primary-light:#EDE4F5;
+
+  /* ── Gold accent ────────────────────────────────── */
+  --color-accent:       #C9912B;
+  --color-accent-light: #F7EBD3;
+
+  /* ── Neutrals ───────────────────────────────────── */
+  --color-muted:        #6B6373;
+  --color-border:       #E8E3ED;
+
+  /* ── Semantic states ────────────────────────────── */
+  --color-success:      #2E7D5B;
+  --color-success-light:#E3F3EC;
+  --color-warning:      #B8791C;
+  --color-warning-light:#FBF0DC;
+  --color-danger:       #B23A3A;
+  --color-danger-light: #FBE9E9;
+
+  /* ── Shadows ──────────────────────────────────────── */
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+
+  /* ── Typography ─────────────────────────────────── */
+  --font-sans: var(--font-inter);
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ── Tabular numbers — aligned digits without monospace ───── */
+.tabnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* ── Native-feel mobile foundations ────────────────────────── */
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: contain;
 }
+
+/* Heading scale */
+h1 { font-size: 2rem;    font-weight: 800; line-height: 1.2;  letter-spacing: -0.03em; }
+h2 { font-size: 1.375rem;font-weight: 700; line-height: 1.3;  letter-spacing: -0.025em; }
+h3 { font-size: 1.1rem;  font-weight: 700; line-height: 1.35; letter-spacing: -0.015em; }
+
+label, .text-xs, .text-sm {
+  font-weight: inherit;
+}
+
+td, th, li {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+/* Prevent iOS zoom on input focus */
+@media (max-width: 639px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Safe area for notched devices */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  main {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Native-feel touch targets */
+button, a, [role="button"] {
+  touch-action: manipulation;
+}
+
+@media (max-width: 639px) {
+  button:not([class*="absolute"]):not([class*="w-8"]):not([class*="w-6"]),
+  a[class*="rounded"] {
+    min-height: 44px;
+  }
+}
+
+.overflow-y-auto, .overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── AppShell main padding ────────────────────────────────── */
+.appshell-main {
+  padding-bottom: 72px;
+}
+@media (min-width: 768px) {
+  .appshell-main {
+    padding-bottom: 0;
+  }
+}
+
+/* ── Sidebar scrollbar ────────────────────────────────────── */
+.sidebar-scroll::-webkit-scrollbar        { width: 4px; }
+.sidebar-scroll::-webkit-scrollbar-track  { background: #FFFFFF; }
+.sidebar-scroll::-webkit-scrollbar-thumb  { background: #E8E3ED; border-radius: 4px; }
+.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #6B6373; }
