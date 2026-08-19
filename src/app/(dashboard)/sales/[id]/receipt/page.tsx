@@ -99,6 +99,8 @@ function buildWhatsAppText(sale: Sale, items: SaleItemExt[]): string {
   if (bal > 0) L.push(`*Balance: KES ${fmt(bal)}*`)
   if (sale.mpesa_ref) L.push(`Ref: ${sale.mpesa_ref}`)
   L.push('')
+  L.push(`*${STORE_BUYGOODS}*`)
+  L.push(`Tel: ${STORE_PHONE}`)
   L.push(`_Thank you — ${STORE_NAME}_`)
   return L.join('\n')
 }
@@ -126,8 +128,9 @@ function ReceiptContent({ sale, items, servedBy }: {
       <div style={{ textAlign: 'center', marginBottom: 2 }}>
         <div style={{ fontWeight: 900, fontSize: 15, letterSpacing: 1.5 }}>{STORE_NAME}</div>
         <div style={{ fontSize: 10, color: '#555' }}>{STORE_ADDRESS}, {STORE_CITY}</div>
-        <div style={{ fontSize: 11, fontWeight: 700 }}>Tel: {STORE_PHONE}</div>
-        <div style={{ fontSize: 9, color: '#666' }}>{STORE_AGENT} | {STORE_BUYGOODS}</div>
+        <div style={{ fontSize: 12, fontWeight: 700 }}>Tel: {STORE_PHONE}</div>
+        <div style={{ fontSize: 9, color: '#666' }}>{STORE_AGENT}</div>
+        <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: 0.5, marginTop: 2 }}>{STORE_BUYGOODS}</div>
       </div>
 
       <hr style={dash} />
@@ -227,8 +230,9 @@ hr{border:none;border-top:1px dashed #aaa;margin:4px 0}
 </style></head><body>
 <div class="c"><div class="b" style="font-size:1.2em;letter-spacing:1.5px">${esc(STORE_NAME)}</div>
 <div style="font-size:0.8em;color:#555">${esc(STORE_ADDRESS)}, ${esc(STORE_CITY)}</div>
-<div style="font-size:0.9em;font-weight:700">Tel: ${esc(STORE_PHONE)}</div>
-<div style="font-size:0.72em;color:#666">${esc(STORE_AGENT)} | ${esc(STORE_BUYGOODS)}</div></div>
+<div style="font-size:0.95em;font-weight:700">Tel: ${esc(STORE_PHONE)}</div>
+<div style="font-size:0.72em;color:#666">${esc(STORE_AGENT)}</div>
+<div style="font-size:1.05em;font-weight:900;margin-top:2px">${esc(STORE_BUYGOODS)}</div></div>
 <hr/>
 <div class="c b" style="font-size:1.15em;letter-spacing:3px;margin:2px 0">*${refNo(sale.id)}*</div>
 <div style="font-size:0.88em;color:#444">
