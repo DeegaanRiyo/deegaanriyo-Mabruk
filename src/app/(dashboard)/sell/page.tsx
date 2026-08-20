@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Product, isMultiUnit, isWeightProduct, UNIT_LABELS, UnitType, getEffectiveSellPrice, getEffectiveSellPricePiece } from '@/lib/types'
 import { fmt } from '@/lib/utils'
-import { Search, Plus, Minus, Trash2, ShoppingCart, X, ChevronDown, User, Phone, CreditCard, Banknote, ArrowRight } from 'lucide-react'
+import { cacheProducts, getCachedProducts, queueSale, isOnline } from '@/lib/offline'
+import { useConnection } from '@/lib/connection'
+import { Search, Plus, Minus, Trash2, ShoppingCart, X, ChevronDown, User, Phone, CreditCard, Banknote, ArrowRight, WifiOff } from 'lucide-react'
 
 // ── Design tokens ───────────────────────────────────────────────────────────
 const C = {
@@ -157,6 +159,30 @@ export default function SellPage() {
     } else {
       setSearching(true)
     }
+
+    // If offline, use cached products
+    if (!isOnline()) {
+      const cached = await getCachedProducts()
+      if (cached) {
+        let filtered = cached.filter(p => p.is_active && p.stock_qty > 0)
+        if (term.trim()) {
+          const lower = term.trim().toLowerCase()
+          filtered = filtered.filter(p =>
+            p.name.toLowerCase().includes(lower) ||
+            (p.brand?.toLowerCase().includes(lower)) ||
+            (p.size?.toLowerCase().includes(lower)) ||
+            (p.code?.toLowerCase().includes(lower))
+          )
+        }
+        setProducts(filtered)
+        setHasMore(false)
+      }
+      setLoading(false)
+      setLoadingMore(false)
+      setSearching(false)
+      return
+    }
+
     const start = append ? productsRef.current.length : 0
     let q = supabase.from('products').select('*')
       .eq('is_active', true).gt('stock_qty', 0).order('name')
@@ -165,13 +191,27 @@ export default function SellPage() {
       const s = `%${term.trim()}%`
       q = q.or(`name.ilike.${s},brand.ilike.${s},size.ilike.${s},code.ilike.${s}`)
     }
-    const { data } = await q
+    const { data, error } = await q
+
+    // If fetch failed (network dropped mid-request), try cache
+    if (error && !data) {
+      const cached = await getCachedProducts()
+      if (cached) setProducts(cached.filter(p => p.is_active && p.stock_qty > 0))
+      setLoading(false); setLoadingMore(false); setSearching(false)
+      return
+    }
+
     const rows = (data ?? []) as Product[]
     if (append) setProducts(prev => [...prev, ...rows]); else setProducts(rows)
     setHasMore(rows.length === 60)
     setLoading(false)
     setLoadingMore(false)
     setSearching(false)
+
+    // Cache full product list on successful initial load
+    if (!append && !term.trim() && rows.length > 0) {
+      cacheProducts(rows)
+    }
   }, []) // eslint-disable-line
 
   useEffect(() => {
@@ -254,6 +294,8 @@ export default function SellPage() {
   const isCredit = paid < total
   const change = paid > total ? paid - total : 0
 
+  const { refreshQueue } = useConnection()
+
   async function checkout() {
     if (!cart.length || processing) return
     setProcessing(true)
@@ -262,7 +304,7 @@ export default function SellPage() {
     const finalMpesa = method === 'mpesa' ? (mpesaVal || total) : method === 'split' ? mpesaVal : 0
     const finalPaid = finalCash + finalMpesa
 
-    const { data: sale, error: err } = await supabase.from('sales').insert({
+    const saleData = {
       total,
       paid_amount: finalPaid,
       method,
@@ -271,17 +313,16 @@ export default function SellPage() {
       mpesa_ref: (method === 'mpesa' || method === 'split') ? mpesaRef.trim() || null : null,
       client_name: clientName.trim() || null,
       client_phone: clientPhone.trim() || null,
-    }).select('id').single()
-    if (err || !sale) { setProcessing(false); return }
+    }
 
-    const { error: itemsErr } = await supabase.from('sale_items').insert(cart.map(c => {
+    const itemsData = cart.map(c => {
       const ppu = c.product.pieces_per_unit || 1
       const qtyPieces = c.mode === 'unit' ? c.quantity * ppu : c.quantity
       const pricePerPiece = c.mode === 'unit'
         ? getEffectiveSellPricePiece(c.product)
         : price(c)
       return {
-        sale_id: sale.id, product_id: c.product.id,
+        product_id: c.product.id,
         quantity: qtyPieces,
         sell_mode: c.mode,
         sell_qty: c.quantity,
@@ -289,14 +330,45 @@ export default function SellPage() {
         buy_price: c.product.buy_price,
         line_total: price(c) * c.quantity,
       }
-    }))
+    })
+
+    const creditData = (isCredit && clientName.trim()) ? {
+      client_name: clientName.trim(),
+      client_phone: clientPhone.trim() || null,
+      amount: total,
+      paid: finalPaid,
+    } : null
+
+    // ── Offline: queue sale locally ──
+    if (!isOnline()) {
+      await queueSale({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        sale: saleData,
+        items: itemsData,
+        credit: creditData,
+      })
+      await refreshQueue()
+      setCart([])
+      try { sessionStorage.removeItem('mabruk_cart') } catch {}
+      setProcessing(false)
+      setShowPay(false)
+      setMobileCart(false)
+      setClientName(''); setClientPhone(''); setMpesaRef('')
+      setCashAmount(''); setMpesaAmount('')
+      alert('Sale saved offline. It will sync automatically when you are back online.')
+      return
+    }
+
+    // ── Online: save to Supabase directly ──
+    const { data: sale, error: err } = await supabase.from('sales').insert(saleData).select('id').single()
+    if (err || !sale) { setProcessing(false); alert('Failed to save sale: ' + (err?.message ?? 'unknown error')); return }
+
+    const { error: itemsErr } = await supabase.from('sale_items').insert(itemsData.map(item => ({ ...item, sale_id: sale.id })))
     if (itemsErr) { alert('Failed to save sale items: ' + itemsErr.message); setProcessing(false); return }
 
-    if (isCredit && clientName.trim()) {
-      const { error: creditErr } = await supabase.from('credits').insert({
-        sale_id: sale.id, client_name: clientName.trim(),
-        client_phone: clientPhone.trim() || null, amount: total, paid: finalPaid,
-      })
+    if (creditData) {
+      const { error: creditErr } = await supabase.from('credits').insert({ sale_id: sale.id, ...creditData })
       if (creditErr) { alert('Sale saved but credit record failed: ' + creditErr.message) }
     }
     try { sessionStorage.removeItem('mabruk_cart') } catch {}

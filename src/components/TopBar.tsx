@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { Menu } from 'lucide-react'
+import { useConnection } from '@/lib/connection'
 
 const PRIMARY = 'var(--color-primary)'
 const MUTED = 'var(--color-muted)'
@@ -26,6 +27,7 @@ interface TopBarProps {
 
 export default function TopBar({ onMenuOpen }: TopBarProps) {
   const pathname = usePathname()
+  const { online, queuedSales, syncing } = useConnection()
   const { title, subtitle } = pages[pathname] ?? (
     pathname.startsWith('/sales/') ? { title: 'Receipt', subtitle: 'Sale details' } :
     pages['/']
@@ -84,10 +86,21 @@ export default function TopBar({ onMenuOpen }: TopBarProps) {
       <div className="flex md:hidden items-center gap-2 flex-shrink-0">
         <div
           className="flex items-center gap-1 px-2 py-1 rounded-full"
-          style={{ background: '#E3F3EC' }}
+          style={{ background: online ? '#E3F3EC' : '#FBE9E9' }}
         >
-          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#2E7D5B' }} />
-          <span style={{ fontSize: 10, fontWeight: 600, color: '#2E7D5B' }}>Live</span>
+          {syncing ? (
+            <div className="w-3 h-3 rounded-full border-[1.5px] border-t-transparent animate-spin" style={{ borderColor: '#B8791C transparent #B8791C #B8791C' }} />
+          ) : (
+            <div className={`w-1.5 h-1.5 rounded-full ${online ? 'animate-pulse' : ''}`} style={{ background: online ? '#2E7D5B' : '#B23A3A' }} />
+          )}
+          <span style={{ fontSize: 10, fontWeight: 600, color: online ? '#2E7D5B' : '#B23A3A' }}>
+            {syncing ? 'Syncing' : online ? 'Live' : 'Offline'}
+          </span>
+          {queuedSales > 0 && (
+            <span className="ml-0.5 px-1.5 rounded-full text-[9px] font-black" style={{ background: '#B8791C', color: '#fff' }}>
+              {queuedSales}
+            </span>
+          )}
         </div>
         <Link
           href="/credits"
@@ -112,10 +125,21 @@ export default function TopBar({ onMenuOpen }: TopBarProps) {
       <div className="hidden md:flex items-center gap-3">
         <div
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-          style={{ background: '#E3F3EC' }}
+          style={{ background: online ? '#E3F3EC' : '#FBE9E9' }}
         >
-          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#2E7D5B' }} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#2E7D5B' }}>Live</span>
+          {syncing ? (
+            <div className="w-3 h-3 rounded-full border-[1.5px] border-t-transparent animate-spin" style={{ borderColor: '#B8791C transparent #B8791C #B8791C' }} />
+          ) : (
+            <div className={`w-1.5 h-1.5 rounded-full ${online ? 'animate-pulse' : ''}`} style={{ background: online ? '#2E7D5B' : '#B23A3A' }} />
+          )}
+          <span style={{ fontSize: 11, fontWeight: 600, color: online ? '#2E7D5B' : '#B23A3A' }}>
+            {syncing ? 'Syncing...' : online ? 'Live' : 'Offline'}
+          </span>
+          {queuedSales > 0 && (
+            <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black" style={{ background: '#B8791C', color: '#fff' }}>
+              {queuedSales} queued
+            </span>
+          )}
         </div>
         <span style={{ fontSize: 12, color: MUTED }}>{today}</span>
       </div>
