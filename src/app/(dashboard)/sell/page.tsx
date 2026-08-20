@@ -274,7 +274,7 @@ export default function SellPage() {
     }).select('id').single()
     if (err || !sale) { setProcessing(false); return }
 
-    await supabase.from('sale_items').insert(cart.map(c => {
+    const { error: itemsErr } = await supabase.from('sale_items').insert(cart.map(c => {
       const ppu = c.product.pieces_per_unit || 1
       const qtyPieces = c.mode === 'unit' ? c.quantity * ppu : c.quantity
       const pricePerPiece = c.mode === 'unit'
@@ -290,12 +290,14 @@ export default function SellPage() {
         line_total: price(c) * c.quantity,
       }
     }))
+    if (itemsErr) { alert('Failed to save sale items: ' + itemsErr.message); setProcessing(false); return }
 
     if (isCredit && clientName.trim()) {
-      await supabase.from('credits').insert({
+      const { error: creditErr } = await supabase.from('credits').insert({
         sale_id: sale.id, client_name: clientName.trim(),
         client_phone: clientPhone.trim() || null, amount: total, paid: finalPaid,
       })
+      if (creditErr) { alert('Sale saved but credit record failed: ' + creditErr.message) }
     }
     try { sessionStorage.removeItem('mabruk_cart') } catch {}
     router.push(`/sales/${sale.id}/receipt`)
@@ -716,11 +718,11 @@ export default function SellPage() {
 
       {/* ── Mobile: cart sheet ── */}
       {mobileCart && (
-        <div className="md:hidden fixed inset-0 z-50 flex flex-col" onClick={() => setMobileCart(false)}>
-          <div className="flex-1" style={{ background: 'rgba(30,22,38,0.4)' }} />
-          <div className="rounded-t-2xl max-h-[85vh] flex flex-col" style={{ background: C.surface }}
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `2px solid ${C.border}` }}>
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col">
+          <div className="flex-1" style={{ background: 'rgba(30,22,38,0.4)' }}
+            onClick={() => setMobileCart(false)} />
+          <div className="rounded-t-2xl max-h-[85vh] flex flex-col" style={{ background: C.surface }}>
+            <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `2px solid ${C.border}` }}>
               <div className="flex items-center gap-2">
                 <ShoppingCart size={15} style={{ color: C.primary }} />
                 <span className="font-black text-sm">Sale</span>
@@ -735,8 +737,8 @@ export default function SellPage() {
             </div>
             <div className="flex-1 overflow-y-auto">
               {cartContent}
+              {checkoutFooter}
             </div>
-            {checkoutFooter}
           </div>
         </div>
       )}

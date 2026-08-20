@@ -14,6 +14,7 @@ export default function CreditsPage() {
   const [payingId, setPayingId] = useState<string | null>(null)
   const [payAmount, setPayAmount] = useState('')
   const [payMethod, setPayMethod] = useState<'cash' | 'mpesa'>('cash')
+  const [payProcessing, setPayProcessing] = useState(false)
   const [dateRange, setDateRange] = useState<'all' | 'week' | 'month'>('all')
 
   useEffect(() => { loadCredits() }, [filter, dateRange]) // eslint-disable-line
@@ -40,7 +41,8 @@ export default function CreditsPage() {
 
   async function handlePayment(credit: Credit) {
     const amount = parseFloat(payAmount)
-    if (!amount || amount <= 0) return
+    if (!amount || amount <= 0 || payProcessing) return
+    setPayProcessing(true)
 
     const { error } = await supabase.rpc('record_credit_payment', {
       p_credit_id: credit.id,
@@ -48,6 +50,7 @@ export default function CreditsPage() {
       p_method: payMethod,
     })
 
+    setPayProcessing(false)
     if (error) {
       alert('Payment failed: ' + error.message)
       return
@@ -181,13 +184,15 @@ export default function CreditsPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handlePayment(c)}
-                        className="flex-1 bg-success text-white rounded-lg py-2.5 text-sm font-bold"
+                        disabled={payProcessing}
+                        className="flex-1 bg-success text-white rounded-lg py-2.5 text-sm font-bold disabled:opacity-50"
                       >
-                        Confirm
+                        {payProcessing ? 'Saving...' : 'Confirm'}
                       </button>
                       <button
                         onClick={() => setPayingId(null)}
-                        className="px-4 bg-background border border-border rounded-lg py-2.5 text-sm text-muted"
+                        disabled={payProcessing}
+                        className="px-4 bg-background border border-border rounded-lg py-2.5 text-sm text-muted disabled:opacity-50"
                       >
                         Cancel
                       </button>
