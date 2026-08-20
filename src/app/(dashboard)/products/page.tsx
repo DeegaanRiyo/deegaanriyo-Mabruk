@@ -128,13 +128,13 @@ export default function ProductsPage() {
       supabase.from('products').select('buy_price,stock_qty,supplier_name').eq('is_active', true),
       supabase.from('purchase_orders').select('total_amount,paid_amount'),
     ])
-    const rows = allProducts ?? []
+    const rows = (allProducts ?? []) as Record<string, unknown>[]
     const totalProducts = rows.length
-    const inventoryCost = rows.reduce((s, r) => s + Number(r.buy_price) * Number(r.stock_qty), 0)
-    const supplierNames = new Set(rows.map(r => r.supplier_name).filter(Boolean))
+    const inventoryCost = rows.reduce((s: number, r) => s + Number(r.buy_price) * Number(r.stock_qty), 0)
+    const supplierNames = new Set(rows.map((r) => r.supplier_name).filter(Boolean))
     const totalSuppliers = supplierNames.size
-    const supplierDebt = (purchaseOrders ?? []).reduce(
-      (s, r) => s + Math.max(0, Number(r.total_amount) - Number(r.paid_amount)), 0
+    const supplierDebt = ((purchaseOrders ?? []) as Record<string, unknown>[]).reduce(
+      (s: number, r) => s + Math.max(0, Number(r.total_amount) - Number(r.paid_amount)), 0
     )
     setSummary({ totalProducts, inventoryCost, totalSuppliers, supplierDebt })
   }

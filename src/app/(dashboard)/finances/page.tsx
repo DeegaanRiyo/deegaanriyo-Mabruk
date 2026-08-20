@@ -164,23 +164,24 @@ export default function FinancesPage() {
       supabase.from('products').select('stock_qty, buy_price').eq('is_active', true).gt('stock_qty', 0),
     ])
 
-    const sales         = salesRows ?? []
+    type R = Record<string, unknown>
+    const sales         = (salesRows ?? []) as R[]
     const totalSales    = sales.length
-    const revenue       = sales.reduce((s, r) => s + Number(r.total), 0)
-    const cashCollected = sales.reduce((s, r) => s + Number(r.cash_amount ?? 0), 0)
-    const mpesaCollected= sales.reduce((s, r) => s + Number(r.mpesa_amount ?? 0), 0)
+    const revenue       = sales.reduce((s: number, r) => s + Number(r.total), 0)
+    const cashCollected = sales.reduce((s: number, r) => s + Number(r.cash_amount ?? 0), 0)
+    const mpesaCollected= sales.reduce((s: number, r) => s + Number(r.mpesa_amount ?? 0), 0)
 
-    const cogsSold     = (saleItems       ?? []).reduce((s, r) => s + Number(r.buy_price) * Number(r.quantity), 0)
+    const cogsSold     = ((saleItems       ?? []) as R[]).reduce((s: number, r) => s + Number(r.buy_price) * Number(r.quantity), 0)
     const grossProfit  = revenue - cogsSold
     const expRows      = (expenseRows ?? []) as Expense[]
-    const expenses     = expRows.reduce((s, r) => s + Number(r.amount), 0)
+    const expenses     = expRows.reduce((s: number, r) => s + Number(r.amount), 0)
     setExpenseList(expRows)
-    const creditOwed   = (credits         ?? []).reduce((s, r) => s + Math.max(0, Number(r.amount) - Number(r.paid)), 0)
+    const creditOwed   = ((credits         ?? []) as R[]).reduce((s: number, r) => s + Math.max(0, Number(r.amount) - Number(r.paid)), 0)
     const netProfit    = grossProfit - expenses
-    const supplierDebt = (purchaseOrders  ?? []).reduce((s, r) => s + Math.max(0, Number(r.total_amount) - Number(r.paid_amount)), 0)
-    const cogsPurchased= (periodPurchases ?? []).reduce((s, r) => s + Number(r.total_amount), 0)
-    const stockRows    = stockData ?? []
-    const stockValue   = stockRows.reduce((s, r) => s + Number(r.stock_qty) * Number(r.buy_price), 0)
+    const supplierDebt = ((purchaseOrders  ?? []) as R[]).reduce((s: number, r) => s + Math.max(0, Number(r.total_amount) - Number(r.paid_amount)), 0)
+    const cogsPurchased= ((periodPurchases ?? []) as R[]).reduce((s: number, r) => s + Number(r.total_amount), 0)
+    const stockRows    = (stockData ?? []) as R[]
+    const stockValue   = stockRows.reduce((s: number, r) => s + Number(r.stock_qty) * Number(r.buy_price), 0)
     const stockItems   = stockRows.length
 
     setStats({ revenue, totalSales, cashCollected, mpesaCollected, cogsSold, grossProfit, expenses, netProfit, creditOwed, supplierDebt, cogsPurchased, stockValue, stockItems })
@@ -205,17 +206,17 @@ export default function FinancesPage() {
       d.setDate(d.getDate() + i)
       const dayStart = new Date(d); dayStart.setHours(0, 0, 0, 0)
       const dayEnd = new Date(d); dayEnd.setHours(23, 59, 59, 999)
-      const dayRev = (weekSales ?? [])
-        .filter(s => { const t = new Date(s.created_at); return t >= dayStart && t <= dayEnd })
-        .reduce((s, r) => s + Number(r.total), 0)
-      const dayProfit = (weekItems ?? [])
-        .filter(s => {
-          const ca = (s as Record<string, unknown>).sales as Record<string, string> | undefined
+      const dayRev = ((weekSales ?? []) as R[])
+        .filter((s) => { const t = new Date(s.created_at as string); return t >= dayStart && t <= dayEnd })
+        .reduce((s: number, r) => s + Number(r.total), 0)
+      const dayProfit = ((weekItems ?? []) as R[])
+        .filter((s) => {
+          const ca = s.sales as Record<string, string> | undefined
           if (!ca?.created_at) return false
           const t = new Date(ca.created_at)
           return t >= dayStart && t <= dayEnd
         })
-        .reduce((s, r) => s + (Number(r.unit_price) - Number(r.buy_price)) * Number(r.quantity), 0)
+        .reduce((s: number, r) => s + (Number(r.unit_price) - Number(r.buy_price)) * Number(r.quantity), 0)
       days.push({ label: dayNames[d.getDay()], revenue: dayRev, profit: dayProfit })
     }
     setDailyData(days)

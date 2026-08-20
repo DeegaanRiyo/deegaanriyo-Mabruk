@@ -66,11 +66,11 @@ export default function DashboardPage() {
         { data: creditsData },
         { data: yesterdaySalesData },
       ] = results
-      setYesterdayRevenue((yesterdaySalesData ?? []).reduce((s, r) => s + Number(r.total), 0))
+      setYesterdayRevenue((yesterdaySalesData ?? []).reduce((s: number, r: Record<string, unknown>) => s + Number(r.total), 0))
 
-      const todayRevenue = (todaySalesData ?? []).reduce((s, r) => s + Number(r.total), 0)
-      const todayProfit = (todayItemsData ?? []).reduce((s, r) => s + (Number(r.unit_price) - Number(r.buy_price)) * Number(r.quantity), 0)
-      const pendingCreditAmount = (creditsData ?? []).reduce((s, r) => s + (Number(r.amount) - Number(r.paid)), 0)
+      const todayRevenue = (todaySalesData ?? []).reduce((s: number, r: Record<string, unknown>) => s + Number(r.total), 0)
+      const todayProfit = (todayItemsData ?? []).reduce((s: number, r: Record<string, unknown>) => s + (Number(r.unit_price) - Number(r.buy_price)) * Number(r.quantity), 0)
+      const pendingCreditAmount = (creditsData ?? []).reduce((s: number, r: Record<string, unknown>) => s + (Number(r.amount) - Number(r.paid)), 0)
 
       setStats({
         totalProducts: totalProducts ?? 0,

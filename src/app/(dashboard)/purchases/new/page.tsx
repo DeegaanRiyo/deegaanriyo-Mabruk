@@ -85,10 +85,10 @@ export default function AddStockPage() {
 
   // ── Load suppliers & products on mount ────────────────────
   useEffect(() => {
-    supabase.from('suppliers').select('*').order('name').then(({ data }) => {
+    supabase.from('suppliers').select('*').order('name').then(({ data }: { data: Supplier[] | null }) => {
       setSuppliers((data ?? []) as Supplier[])
     })
-    supabase.from('products').select('*').eq('is_active', true).then(({ data }) => {
+    supabase.from('products').select('*').eq('is_active', true).then(({ data }: { data: Product[] | null }) => {
       setAllProducts((data ?? []) as Product[])
     })
   }, []) // eslint-disable-line
