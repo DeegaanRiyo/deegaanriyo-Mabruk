@@ -29,6 +29,37 @@ const C = {
   shadow: '0 1px 3px rgba(0,0,0,0.06)',
 } as const
 
+function EditableCell({ editing, value, onChange, onCommit, onCancel, saving: cellSaving, displayValue, displayColor, editHint, sub }: {
+  editing: boolean; value: string; onChange: (v: string) => void; onCommit: () => void; onCancel: () => void
+  saving: boolean; displayValue: string; displayColor: string; editHint?: string; sub?: string
+}) {
+  if (editing) {
+    return (
+      <div className="flex items-center justify-end gap-1">
+        <input autoFocus type="number" min="0" step="0.01" value={value}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') onCommit(); if (e.key === 'Escape') onCancel() }}
+          onBlur={onCommit}
+          style={{
+            width: 80, textAlign: 'right', padding: '4px 6px',
+            border: `2px solid ${C.primary}`, borderRadius: 8,
+            fontSize: 13, fontWeight: 800, outline: 'none',
+            background: '#fff', color: C.fg,
+          }} />
+        {cellSaving && <span style={{ fontSize: 10, color: C.muted }}>...</span>}
+      </div>
+    )
+  }
+  return (
+    <>
+      <span className="tabnum font-bold" style={{ color: displayColor, fontSize: 13 }}>
+        {displayValue}
+      </span>
+      {sub && <div style={{ fontSize: 9, color: C.muted, marginTop: 1 }}>{sub}</div>}
+    </>
+  )
+}
+
 export default function ProductsPage() {
   const supabase = createClient()
   const PAGE_SIZE = 50
@@ -67,8 +98,12 @@ export default function ProductsPage() {
     supplierDebt: 0,
   })
 
-  useEffect(() => { loadProducts(); loadSummary() }, []) // eslint-disable-line
+  useEffect(() => { loadSummary() }, []) // eslint-disable-line
   useEffect(() => {
+    if (search === '') {
+      loadProducts(false)
+      return
+    }
     const t = setTimeout(() => loadProducts(false), 300)
     return () => clearTimeout(t)
   }, [search]) // eslint-disable-line
@@ -405,37 +440,7 @@ export default function ProductsPage() {
     )
   }
 
-  // ── Inline editable cell helper ───────────────────────────────────────────
-  function EditableCell({ editing, value, onChange, onCommit, onCancel, saving: cellSaving, displayValue, displayColor, editHint, sub }: {
-    editing: boolean; value: string; onChange: (v: string) => void; onCommit: () => void; onCancel: () => void
-    saving: boolean; displayValue: string; displayColor: string; editHint?: string; sub?: string
-  }) {
-    if (editing) {
-      return (
-        <div className="flex items-center justify-end gap-1">
-          <input autoFocus type="number" min="0" step="0.01" value={value}
-            onChange={e => onChange(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') onCommit(); if (e.key === 'Escape') onCancel() }}
-            onBlur={onCommit}
-            style={{
-              width: 80, textAlign: 'right', padding: '4px 6px',
-              border: `2px solid ${C.primary}`, borderRadius: 8,
-              fontSize: 13, fontWeight: 800, outline: 'none',
-              background: '#fff', color: C.fg,
-            }} />
-          {cellSaving && <span style={{ fontSize: 10, color: C.muted }}>...</span>}
-        </div>
-      )
-    }
-    return (
-      <>
-        <span className="tabnum font-bold" style={{ color: displayColor, fontSize: 13 }}>
-          {displayValue}
-        </span>
-        {sub && <div style={{ fontSize: 9, color: C.muted, marginTop: 1 }}>{sub}</div>}
-      </>
-    )
-  }
+  // ── Inline editable cell (extracted to module scope) ──────────────────────
 
   // ── List View ─────────────────────────────────────────────────────────────
   return (

@@ -37,6 +37,79 @@ interface CartItem {
 
 type PayMethod = 'cash' | 'mpesa' | 'split'
 
+const fmtQty = (q: number) => q === 0.5 ? '½' : q % 1 === 0.5 ? `${Math.floor(q)}½` : String(q)
+
+function CartLine({ c, unitPrice, onQty, onRemove }: {
+  c: CartItem
+  unitPrice: number
+  onQty: (pid: string, mode: 'unit' | 'piece', d: number) => void
+  onRemove: (pid: string, mode: 'unit' | 'piece') => void
+}) {
+  const isWt = isWeightProduct(c.product)
+  const uLbl = (UNIT_LABELS[c.product.unit_type as UnitType] || c.product.unit_type).toLowerCase()
+  return (
+    <div className="flex items-center gap-2 py-2.5 px-3"
+      style={{ borderBottom: `1px solid ${C.border}` }}>
+      <div className="flex-1 min-w-0">
+        <div className="truncate text-[13px] font-bold" style={{ color: C.fg }}>
+          {c.product.name}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          {c.mode === 'unit' ? (
+            <span className="text-[10px] font-bold px-1.5 rounded"
+              style={{ background: C.primaryLight, color: C.primary }}>
+              {isWt
+                ? `${fmtQty(c.quantity)} ${uLbl} (${(c.product.pieces_per_unit || 1) * c.quantity}KG)`
+                : `${fmtQty(c.quantity)} ${uLbl}`}
+            </span>
+          ) : isWt ? (
+            <span className="text-[10px] font-bold px-1.5 rounded"
+              style={{ background: C.successLight, color: C.success }}>
+              {fmtQty(c.quantity)} KG
+            </span>
+          ) : (
+            <>
+              {c.product.size && (
+                <span className="text-[10px] font-semibold" style={{ color: C.muted }}>{c.product.size}</span>
+              )}
+              <span className="text-[10px] font-bold px-1.5 rounded"
+                style={{ background: C.successLight, color: C.success }}>
+                {c.quantity} pc
+              </span>
+            </>
+          )}
+          <span className="text-[10px] tabnum font-semibold" style={{ color: C.muted }}>
+            @ {fmt(unitPrice)}{c.mode === 'piece' && (isWt ? '/kg' : '/pc') || `/${uLbl}`}
+          </span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button onClick={() => onQty(c.product.id, c.mode, -1)}
+          className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-transform"
+          style={{ background: C.primaryLight, color: C.primary }}>
+          <Minus size={13} strokeWidth={2.5} />
+        </button>
+        <span className="w-8 text-center text-sm font-black tabnum" style={{ color: C.fg }}>
+          {fmtQty(c.quantity)}
+        </span>
+        <button onClick={() => onQty(c.product.id, c.mode, 1)}
+          className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-transform"
+          style={{ background: C.primaryLight, color: C.primary }}>
+          <Plus size={13} strokeWidth={2.5} />
+        </button>
+      </div>
+      <button onClick={() => onRemove(c.product.id, c.mode)}
+        className="w-7 h-7 flex items-center justify-center flex-shrink-0 rounded-lg active:scale-90 transition-transform"
+        style={{ color: C.danger, background: C.dangerLight }}>
+        <Trash2 size={12} />
+      </button>
+      <div className="w-[72px] text-right text-[13px] font-black tabnum flex-shrink-0" style={{ color: C.fg }}>
+        {fmt(unitPrice * c.quantity)}
+      </div>
+    </div>
+  )
+}
+
 export default function SellPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -72,9 +145,19 @@ export default function SellPage() {
     try { sessionStorage.setItem('mabruk_cart', JSON.stringify(cart)) } catch {}
   }, [cart])
 
-  const load = useCallback(async (append = false, term = search) => {
-    if (!append) setLoading(true); else setLoadingMore(true)
-    const start = append ? products.length : 0
+  const [searching, setSearching] = useState(false)
+  const productsRef = useRef<Product[]>([])
+  productsRef.current = products
+
+  const load = useCallback(async (append = false, term = '') => {
+    if (append) {
+      setLoadingMore(true)
+    } else if (productsRef.current.length === 0) {
+      setLoading(true)
+    } else {
+      setSearching(true)
+    }
+    const start = append ? productsRef.current.length : 0
     let q = supabase.from('products').select('*')
       .eq('is_active', true).gt('stock_qty', 0).order('name')
       .range(start, start + 59)
@@ -86,11 +169,16 @@ export default function SellPage() {
     const rows = (data ?? []) as Product[]
     if (append) setProducts(prev => [...prev, ...rows]); else setProducts(rows)
     setHasMore(rows.length === 60)
-    if (!append) setLoading(false); else setLoadingMore(false)
-  }, [search, products.length]) // eslint-disable-line
+    setLoading(false)
+    setLoadingMore(false)
+    setSearching(false)
+  }, []) // eslint-disable-line
 
-  useEffect(() => { load(false, '') }, []) // eslint-disable-line
   useEffect(() => {
+    if (search === '') {
+      load(false, '')
+      return
+    }
     const t = setTimeout(() => load(false, search), 300)
     return () => clearTimeout(t)
   }, [search]) // eslint-disable-line
@@ -236,82 +324,7 @@ export default function SellPage() {
     </div>
   )
 
-  // ── Cart line item ────────────────────────────────────────────────────────
-  const fmtQty = (q: number) => q === 0.5 ? '½' : q % 1 === 0.5 ? `${Math.floor(q)}½` : String(q)
-
-  const CartLine = ({ c }: { c: CartItem }) => {
-    const up = price(c)
-    const isWt = isWeightProduct(c.product)
-    const uLbl = (UNIT_LABELS[c.product.unit_type as UnitType] || c.product.unit_type).toLowerCase()
-    return (
-      <div className="flex items-center gap-2 py-2.5 px-3"
-        style={{ borderBottom: `1px solid ${C.border}` }}>
-        {/* Product info */}
-        <div className="flex-1 min-w-0">
-          <div className="truncate text-[13px] font-bold" style={{ color: C.fg }}>
-            {c.product.name}
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            {c.mode === 'unit' ? (
-              <span className="text-[10px] font-bold px-1.5 rounded"
-                style={{ background: C.primaryLight, color: C.primary }}>
-                {isWt
-                  ? `${fmtQty(c.quantity)} ${uLbl} (${(c.product.pieces_per_unit || 1) * c.quantity}KG)`
-                  : `${fmtQty(c.quantity)} ${uLbl}`}
-              </span>
-            ) : isWt ? (
-              <span className="text-[10px] font-bold px-1.5 rounded"
-                style={{ background: C.successLight, color: C.success }}>
-                {fmtQty(c.quantity)} KG
-              </span>
-            ) : (
-              <>
-                {c.product.size && (
-                  <span className="text-[10px] font-semibold" style={{ color: C.muted }}>{c.product.size}</span>
-                )}
-                <span className="text-[10px] font-bold px-1.5 rounded"
-                  style={{ background: C.successLight, color: C.success }}>
-                  {c.quantity} pc
-                </span>
-              </>
-            )}
-            <span className="text-[10px] tabnum font-semibold" style={{ color: C.muted }}>
-              @ {fmt(up)}{c.mode === 'piece' && (isWt ? '/kg' : '/pc') || `/${uLbl}`}
-            </span>
-          </div>
-        </div>
-
-        {/* Qty controls */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button onClick={() => updQty(c.product.id, c.mode, -1)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-transform"
-            style={{ background: C.primaryLight, color: C.primary }}>
-            <Minus size={13} strokeWidth={2.5} />
-          </button>
-          <span className="w-8 text-center text-sm font-black tabnum" style={{ color: C.fg }}>
-            {fmtQty(c.quantity)}
-          </span>
-          <button onClick={() => updQty(c.product.id, c.mode, 1)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-transform"
-            style={{ background: C.primaryLight, color: C.primary }}>
-            <Plus size={13} strokeWidth={2.5} />
-          </button>
-        </div>
-
-        {/* Remove */}
-        <button onClick={() => rem(c.product.id, c.mode)}
-          className="w-7 h-7 flex items-center justify-center flex-shrink-0 rounded-lg active:scale-90 transition-transform"
-          style={{ color: C.danger, background: C.dangerLight }}>
-          <Trash2 size={12} />
-        </button>
-
-        {/* Line total */}
-        <div className="w-[72px] text-right text-[13px] font-black tabnum flex-shrink-0" style={{ color: C.fg }}>
-          {fmt(up * c.quantity)}
-        </div>
-      </div>
-    )
-  }
+  // ── Cart line item (extracted to module scope) ─────────────────────────────
 
   // ── Cart content ──────────────────────────────────────────────────────────
   const cartContent = (
@@ -323,7 +336,7 @@ export default function SellPage() {
           <div className="text-[11px] mt-1 opacity-60">Tap a product to add it</div>
         </div>
       ) : (
-        <div>{cart.map(c => <CartLine key={`${c.product.id}-${c.mode}`} c={c} />)}</div>
+        <div>{cart.map(c => <CartLine key={`${c.product.id}-${c.mode}`} c={c} unitPrice={price(c)} onQty={updQty} onRemove={rem} />)}</div>
       )}
     </>
   )
@@ -527,6 +540,10 @@ export default function SellPage() {
                 value={search} onChange={e => setSearch(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 border-2 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#5B2A86]/25 transition-shadow"
                 style={{ borderColor: C.border, background: C.surface }} />
+              {searching && (
+                <div className="absolute right-10 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-t-transparent animate-spin"
+                  style={{ borderColor: `${C.primary} transparent ${C.primary} ${C.primary}` }} />
+              )}
               {search && (
                 <button onClick={() => setSearch('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center"
@@ -643,7 +660,7 @@ export default function SellPage() {
             </div>
 
             {hasMore && (
-              <button onClick={() => load(true)} disabled={loadingMore}
+              <button onClick={() => load(true, search)} disabled={loadingMore}
                 className="w-full py-2.5 mt-2 rounded-xl text-xs font-black disabled:opacity-50 flex items-center justify-center gap-1.5 transition-all"
                 style={{ background: C.primaryLight, color: C.primary }}>
                 <ChevronDown size={13} /> {loadingMore ? 'Loading...' : 'Load more products'}
