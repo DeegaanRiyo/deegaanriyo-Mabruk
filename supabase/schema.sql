@@ -32,6 +32,7 @@ create index idx_suppliers_name on suppliers(name);
 
 alter table suppliers enable row level security;
 create policy anon_all on suppliers for all to anon using (true) with check (true);
+create policy auth_all on suppliers for all to authenticated using (true) with check (true);
 
 -- ── Products ─────────────────────────────────────────────────
 create table products (

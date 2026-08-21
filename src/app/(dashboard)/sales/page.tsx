@@ -1,12 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth'
 import { Sale } from '@/lib/types'
 import { fmt, fmtDate, fmtTime } from '@/lib/utils'
-import { Receipt, Download, ChevronDown, Trash2 } from 'lucide-react'
+import { Receipt, Download, ChevronDown, Trash2, Search, X, ShoppingBag, Banknote, Smartphone, AlertCircle } from 'lucide-react'
 
 const C = {
   surface: '#FFFFFF',
@@ -36,6 +35,8 @@ export default function SalesPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [search, setSearch] = useState('')
+  const [cardFilter, setCardFilter] = useState<'all' | 'cash' | 'mpesa' | 'outstanding' | null>(null)
 
   const PAGE_SIZE = 50
 
@@ -64,6 +65,34 @@ export default function SalesPage() {
   const totalRevenue = sales.reduce((s, r) => s + Number(r.total), 0)
   const totalPaid = sales.reduce((s, r) => s + Number(r.paid_amount), 0)
   const totalOutstanding = totalRevenue - totalPaid
+
+  const cashSales = sales.filter(s => s.method === 'cash')
+  const mpesaSales = sales.filter(s => s.method === 'mpesa')
+  const splitSales = sales.filter(s => s.method === 'split')
+  const outstandingSales = sales.filter(s => Number(s.total) - Number(s.paid_amount) > 0)
+
+  const totalCash = cashSales.reduce((s, r) => s + Number(r.total), 0)
+    + splitSales.reduce((s, r) => s + Number(r.cash_amount), 0)
+  const totalMpesa = mpesaSales.reduce((s, r) => s + Number(r.total), 0)
+    + splitSales.reduce((s, r) => s + Number(r.mpesa_amount), 0)
+
+  // Apply search + card filter
+  const displaySales = sales.filter(s => {
+    // Card filter
+    if (cardFilter === 'cash' && s.method !== 'cash') return false
+    if (cardFilter === 'mpesa' && s.method !== 'mpesa') return false
+    if (cardFilter === 'outstanding' && Number(s.total) - Number(s.paid_amount) <= 0) return false
+    // Search
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      const matchName = s.client_name?.toLowerCase().includes(q)
+      const matchPhone = s.client_phone?.toLowerCase().includes(q)
+      const matchRef = s.mpesa_ref?.toLowerCase().includes(q)
+      const matchAmount = String(s.total).includes(q)
+      if (!matchName && !matchPhone && !matchRef && !matchAmount) return false
+    }
+    return true
+  })
 
   function exportSalesCSV() {
     const rows = [
@@ -105,7 +134,7 @@ export default function SalesPage() {
       {/* Filter + Export */}
       <div className="flex items-center gap-2">
         {(['today', 'week', 'all'] as const).map(f => (
-          <button key={f} onClick={() => setFilter(f)}
+          <button key={f} onClick={() => { setFilter(f); setCardFilter(null) }}
             className="px-4 py-2 rounded-xl text-xs font-black transition-all active:scale-95"
             style={{
               background: filter === f ? C.primary : C.surface,
@@ -124,32 +153,128 @@ export default function SalesPage() {
         )}
       </div>
 
-      {/* Summary row */}
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          { label: 'Revenue', value: fmt(totalRevenue), color: C.primary, accent: C.primary },
-          { label: 'Collected', value: fmt(totalPaid), color: C.success, accent: C.success },
-          { label: 'Owed', value: fmt(totalOutstanding), color: totalOutstanding > 0 ? C.danger : C.muted, accent: totalOutstanding > 0 ? C.danger : C.border },
-        ].map(({ label, value, color, accent }) => (
-          <div key={label} className="rounded-xl overflow-hidden flex" style={{ background: C.surface, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-            <div className="w-1 flex-shrink-0" style={{ background: accent }} />
-            <div className="flex-1 px-3 py-2">
-              <div className="text-[9px] font-black uppercase tracking-widest" style={{ color: C.muted }}>{label}</div>
-              <div className="text-base font-black tabnum" style={{ color }}>{value}</div>
-            </div>
-          </div>
-        ))}
+      {/* Search */}
+      {!loading && sales.length > 0 && (
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.muted }} />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search customer, phone, M-Pesa ref, or amount..."
+            className="w-full pl-9 pr-9 py-2.5 rounded-xl text-xs font-semibold outline-none transition-all"
+            style={{ background: C.surface, color: C.fg, border: `2px solid ${search ? C.primary : C.border}` }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full active:scale-90"
+              style={{ color: C.muted }}>
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 gap-2">
+        {([
+          {
+            key: 'all' as const,
+            label: 'Total Sales',
+            value: fmt(totalRevenue),
+            sub: `${sales.length} transaction${sales.length !== 1 ? 's' : ''}`,
+            icon: ShoppingBag,
+            color: C.primary,
+            bg: C.primaryLight,
+          },
+          {
+            key: 'cash' as const,
+            label: 'Cash',
+            value: fmt(totalCash),
+            sub: `${cashSales.length + splitSales.length} sale${cashSales.length + splitSales.length !== 1 ? 's' : ''}`,
+            icon: Banknote,
+            color: C.success,
+            bg: C.successLight,
+          },
+          {
+            key: 'mpesa' as const,
+            label: 'M-Pesa',
+            value: fmt(totalMpesa),
+            sub: `${mpesaSales.length + splitSales.length} sale${mpesaSales.length + splitSales.length !== 1 ? 's' : ''}`,
+            icon: Smartphone,
+            color: '#0891b2',
+            bg: '#ecfeff',
+          },
+          {
+            key: 'outstanding' as const,
+            label: 'Outstanding',
+            value: fmt(totalOutstanding),
+            sub: `${outstandingSales.length} unpaid`,
+            icon: AlertCircle,
+            color: totalOutstanding > 0 ? C.danger : C.muted,
+            bg: totalOutstanding > 0 ? C.dangerLight : '#f5f5f5',
+          },
+        ]).map(({ key, label, value, sub, icon: Icon, color, bg }) => {
+          const active = cardFilter === key
+          return (
+            <button key={key}
+              onClick={() => setCardFilter(active ? null : key)}
+              className="rounded-xl overflow-hidden text-left transition-all active:scale-[0.97]"
+              style={{
+                background: active ? color : C.surface,
+                boxShadow: active ? `0 2px 8px ${color}40` : '0 1px 3px rgba(0,0,0,0.06)',
+                border: `2px solid ${active ? color : 'transparent'}`,
+              }}>
+              <div className="px-3 py-2.5">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <div className="p-1 rounded-md" style={{ background: active ? 'rgba(255,255,255,0.2)' : bg }}>
+                    <Icon size={12} style={{ color: active ? '#fff' : color }} />
+                  </div>
+                  <div className="text-[9px] font-black uppercase tracking-widest"
+                    style={{ color: active ? 'rgba(255,255,255,0.8)' : C.muted }}>
+                    {label}
+                  </div>
+                </div>
+                <div className="text-base font-black tabnum" style={{ color: active ? '#fff' : color }}>
+                  {value}
+                </div>
+                <div className="text-[10px] font-semibold mt-0.5"
+                  style={{ color: active ? 'rgba(255,255,255,0.7)' : C.muted }}>
+                  {sub}
+                </div>
+              </div>
+            </button>
+          )
+        })}
       </div>
+
+      {/* Active filter indicator */}
+      {(cardFilter || search) && !loading && (
+        <div className="flex items-center gap-2 text-[11px] font-bold" style={{ color: C.muted }}>
+          <span>Showing {displaySales.length} of {sales.length} sales</span>
+          {(cardFilter || search) && (
+            <button onClick={() => { setCardFilter(null); setSearch('') }}
+              className="px-2 py-0.5 rounded-md active:scale-95 transition"
+              style={{ background: C.primaryLight, color: C.primary }}>
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Sales table */}
       {loading ? (
         <div className="space-y-1">
           {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-10 rounded-lg animate-pulse" style={{ background: C.border, opacity: 0.4 }} />)}
         </div>
-      ) : sales.length === 0 ? (
+      ) : displaySales.length === 0 ? (
         <div className="text-center py-16" style={{ color: C.muted }}>
           <Receipt size={32} className="mx-auto mb-3 opacity-20" />
-          <div className="text-sm font-bold">No sales {filter === 'today' ? 'today' : filter === 'week' ? 'this week' : ''}</div>
+          <div className="text-sm font-bold">
+            {search || cardFilter
+              ? 'No sales match your filter'
+              : `No sales ${filter === 'today' ? 'today' : filter === 'week' ? 'this week' : ''}`}
+          </div>
         </div>
       ) : (
         <div className="rounded-xl overflow-hidden" style={{ background: C.surface, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
@@ -177,7 +302,7 @@ export default function SalesPage() {
                 </tr>
               </thead>
               <tbody>
-                {sales.map((s, i) => {
+                {displaySales.map((s, i) => {
                   const outstanding = Number(s.total) - Number(s.paid_amount)
                   return (
                     <tr key={s.id}
