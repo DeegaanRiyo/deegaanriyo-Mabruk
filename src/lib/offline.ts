@@ -7,11 +7,13 @@
  */
 
 import { get, set, del, keys } from 'idb-keyval'
-import type { Product } from './types'
+import type { Product, Client } from './types'
 
 // ── Keys ────────────────────────────────────────────────────────────────────
 const PRODUCTS_KEY = 'mabruk_products'
 const PRODUCTS_TS_KEY = 'mabruk_products_ts'
+const CLIENTS_KEY = 'mabruk_clients'
+const CLIENTS_TS_KEY = 'mabruk_clients_ts'
 const SALE_QUEUE_PREFIX = 'mabruk_sale_'
 
 // ── Product cache ───────────────────────────────────────────────────────────
@@ -30,6 +32,17 @@ export async function getCacheAge(): Promise<number | null> {
   return ts ? Date.now() - ts : null
 }
 
+// ── Client cache ───────────────────────────────────────────────────────────
+
+export async function cacheClients(clients: Client[]) {
+  await set(CLIENTS_KEY, clients)
+  await set(CLIENTS_TS_KEY, Date.now())
+}
+
+export async function getCachedClients(): Promise<Client[] | null> {
+  return (await get<Client[]>(CLIENTS_KEY)) ?? null
+}
+
 // ── Offline sale queue ──────────────────────────────────────────────────────
 
 export interface QueuedSale {
@@ -42,6 +55,7 @@ export interface QueuedSale {
     cash_amount: number
     mpesa_amount: number
     mpesa_ref: string | null
+    client_id: string | null
     client_name: string | null
     client_phone: string | null
   }

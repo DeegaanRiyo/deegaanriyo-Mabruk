@@ -51,10 +51,37 @@ export async function flushSaleQueue(): Promise<SyncResult> {
           continue
         }
 
-        // 3. Insert credit if applicable
+        // 3. Resolve or create client if needed
+        let resolvedClientId = q.sale.client_id
+        if (!resolvedClientId && q.sale.client_name?.trim()) {
+          const { data: existing } = await supabase
+            .from('clients')
+            .select('id')
+            .ilike('name', q.sale.client_name.trim())
+            .limit(1)
+            .single()
+
+          if (existing) {
+            resolvedClientId = existing.id
+          } else {
+            const { data: newClient } = await supabase
+              .from('clients')
+              .insert({ name: q.sale.client_name.trim(), phone: q.sale.client_phone })
+              .select('id')
+              .single()
+            resolvedClientId = newClient?.id ?? null
+          }
+
+          if (resolvedClientId) {
+            await supabase.from('sales').update({ client_id: resolvedClientId }).eq('id', sale.id)
+          }
+        }
+
+        // 4. Insert credit if applicable
         if (q.credit) {
           await supabase.from('credits').insert({
             sale_id: sale.id,
+            client_id: resolvedClientId,
             ...q.credit,
           })
         }

@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Credit } from '@/lib/types'
 import { fmt, fmtDate } from '@/lib/utils'
+import { useRouter } from 'next/navigation'
 import { Users, Check } from 'lucide-react'
 
 export default function CreditsPage() {
   const supabase = createClient()
+  const router = useRouter()
   const [credits, setCredits] = useState<Credit[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'pending' | 'settled'>('pending')
@@ -111,7 +113,7 @@ export default function CreditsPage() {
       {/* Summary */}
       {filter === 'pending' && credits.length > 0 && (
         <div className="bg-warning-light rounded-xl p-4 text-center" style={{ boxShadow: 'var(--shadow-card)' }}>
-          <div className="text-xs text-warning font-medium mb-1">TOTAL OWED TO YOU</div>
+          <div className="text-xs text-warning font-medium mb-1">Total Credit Owed</div>
           <div className="text-2xl font-bold tabnum text-warning">KES {fmt(totalOwed)}</div>
           <div className="text-xs text-muted mt-1">{credits.length} people</div>
         </div>
@@ -133,7 +135,14 @@ export default function CreditsPage() {
               <div key={c.id} className="bg-white rounded-xl p-3" style={{ boxShadow: 'var(--shadow-card)' }}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-bold text-sm">{c.client_name}</div>
+                    <div className="font-bold text-sm">
+                      {c.client_id ? (
+                        <button onClick={() => router.push(`/clients/${c.client_id}`)}
+                          className="hover:underline" style={{ color: '#5B2A86' }}>
+                          {c.client_name}
+                        </button>
+                      ) : c.client_name}
+                    </div>
                     <div className="text-xs text-muted">
                       {fmtDate(c.created_at)}
                       {c.client_phone && ` · ${c.client_phone}`}
@@ -144,7 +153,7 @@ export default function CreditsPage() {
                     {c.is_settled ? (
                       <div className="flex items-center gap-1 text-success text-xs font-bold"><Check size={12} /> Settled</div>
                     ) : (
-                      <div className="text-danger text-xs font-bold">-{fmt(owed)} owed</div>
+                      <div className="text-danger text-xs font-bold">Owes {fmt(owed)}</div>
                     )}
                   </div>
                 </div>

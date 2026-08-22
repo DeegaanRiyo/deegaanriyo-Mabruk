@@ -21,14 +21,22 @@ export function isMultiUnit(p: { pieces_per_unit: number }): boolean {
   return (p.pieces_per_unit || 1) > 1
 }
 
-/** True when product is sold by weight (KG) — e.g. 10KG rice bag, 2KG sugar packet.
- *  Requires BOTH: size ends in KG AND pieces_per_unit > 1 (ppu = KG per unit).
- *  A sealed 2KG flour packet (ppu=1) is NOT a weight product — it sells as one piece. */
+/** True when product is sold by weight (KG) — e.g. 25KG rice sack, 50KG sugar bag.
+ *  Requires: size is plain "KG" or "NKG" (like "25KG") with NO multiplier, AND ppu > 1,
+ *  AND the KG number matches the ppu (confirming ppu represents KG, not piece count).
+ *  Multi-pack sizes like "24x1KG" or "6x2.5KG" are NOT weight products — those are
+ *  sealed packets/tins sold by piece. */
 export function isWeightProduct(p: { size: string | null; pieces_per_unit: number }): boolean {
   if (!p.size) return false
-  if ((p.pieces_per_unit || 1) <= 1) return false
+  const ppu = p.pieces_per_unit || 1
+  if (ppu <= 1) return false
   const s = p.size.trim().toUpperCase()
-  return /^\d*KG$/i.test(s)
+  // Must be plain "KG" or "25KG" — no multiplier like "24x1KG"
+  const m = s.match(/^(\d+)KG$/i)
+  if (!m) return s === 'KG' // bare "KG" (sold loose by weight)
+  // The KG number must match ppu — e.g. "25KG" with ppu=25 is weight,
+  // but "1KG" with ppu=24 means 24 sealed 1KG packets (piece product)
+  return parseInt(m[1]) === ppu
 }
 
 // ── VAT ─────────────────────────────────────────────────────
@@ -128,6 +136,26 @@ export interface StockEntry {
   products?: Pick<Product, 'name' | 'unit_type' | 'size'> | null
 }
 
+export interface Client {
+  id: string
+  name: string
+  phone: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ClientSummary {
+  id: string
+  name: string
+  phone: string | null
+  notes: string | null
+  total_owed: number
+  total_sales: number
+  last_sale: string | null
+  created_at: string
+}
+
 export interface Sale {
   id: string
   total: number
@@ -136,6 +164,7 @@ export interface Sale {
   cash_amount: number
   mpesa_amount: number
   mpesa_ref: string | null
+  client_id: string | null
   client_name: string | null
   client_phone: string | null
   notes: string | null
@@ -159,6 +188,7 @@ export interface SaleItem {
 export interface Credit {
   id: string
   sale_id: string | null
+  client_id: string | null
   client_name: string
   client_phone: string | null
   amount: number

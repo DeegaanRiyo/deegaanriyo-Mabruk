@@ -1,11 +1,11 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Product, isMultiUnit, isWeightProduct, UNIT_LABELS, UnitType, getEffectiveSellPrice, getEffectiveSellPricePiece } from '@/lib/types'
+import { Product, Client, isMultiUnit, isWeightProduct, UNIT_LABELS, UnitType, getEffectiveSellPrice, getEffectiveSellPricePiece } from '@/lib/types'
 import { fmt } from '@/lib/utils'
-import { cacheProducts, getCachedProducts, queueSale, isOnline } from '@/lib/offline'
+import { cacheProducts, getCachedProducts, cacheClients, getCachedClients, queueSale, isOnline } from '@/lib/offline'
 import { useConnection } from '@/lib/connection'
 import { Search, Plus, Minus, Trash2, ShoppingCart, X, ChevronDown, User, Phone, CreditCard, Banknote, ArrowRight, WifiOff } from 'lucide-react'
 
@@ -138,8 +138,12 @@ export default function SellPage() {
   const [mpesaRef, setMpesaRef] = useState('')
   const [cashAmount, setCashAmount] = useState('')
   const [mpesaAmount, setMpesaAmount] = useState('')
+  const [clientId, setClientId] = useState<string | null>(null)
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
+  const [clientsList, setClientsList] = useState<Client[]>([])
+  const [clientSuggestions, setClientSuggestions] = useState<Client[]>([])
+  const [showClientPicker, setShowClientPicker] = useState(false)
   const [showPay, setShowPay] = useState(false)
 
   // Persist cart
@@ -223,6 +227,38 @@ export default function SellPage() {
     return () => clearTimeout(t)
   }, [search]) // eslint-disable-line
 
+  // Load clients for picker
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    async function loadClients() {
+      if (!isOnline()) {
+        const cached = await getCachedClients()
+        if (cached) setClientsList(cached)
+        return
+      }
+      const { data } = await supabase.from('clients').select('*').order('name')
+      if (data) {
+        const clients = data as Client[]
+        setClientsList(clients)
+        cacheClients(clients)
+      }
+    }
+    loadClients()
+
+    // Pre-fill client from URL param ?client=ID
+    const paramId = searchParams.get('client')
+    if (paramId) {
+      supabase.from('clients').select('*').eq('id', paramId).single().then(({ data }: { data: Client | null }) => {
+        if (data) {
+          const c = data as Client
+          setClientId(c.id)
+          setClientName(c.name)
+          setClientPhone(c.phone || '')
+        }
+      })
+    }
+  }, []) // eslint-disable-line
+
   // Keyboard: "/" focuses search
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
@@ -287,8 +323,8 @@ export default function SellPage() {
   const cashVal = parseFloat(cashAmount) || 0
   const mpesaVal = parseFloat(mpesaAmount) || 0
   let paid: number
-  if (method === 'cash') paid = cashVal || total
-  else if (method === 'mpesa') paid = mpesaVal || total
+  if (method === 'cash') paid = cashAmount === '' ? total : cashVal
+  else if (method === 'mpesa') paid = mpesaAmount === '' ? total : mpesaVal
   else paid = cashVal + mpesaVal
 
   const isCredit = paid < total
@@ -300,8 +336,8 @@ export default function SellPage() {
     if (!cart.length || processing) return
     setProcessing(true)
 
-    const finalCash = method === 'cash' ? (cashVal || total) : method === 'split' ? cashVal : 0
-    const finalMpesa = method === 'mpesa' ? (mpesaVal || total) : method === 'split' ? mpesaVal : 0
+    const finalCash = method === 'cash' ? (cashAmount === '' ? total : cashVal) : method === 'split' ? cashVal : 0
+    const finalMpesa = method === 'mpesa' ? (mpesaAmount === '' ? total : mpesaVal) : method === 'split' ? mpesaVal : 0
     const finalPaid = finalCash + finalMpesa
 
     const saleData = {
@@ -311,6 +347,7 @@ export default function SellPage() {
       cash_amount: finalCash,
       mpesa_amount: finalMpesa,
       mpesa_ref: (method === 'mpesa' || method === 'split') ? mpesaRef.trim() || null : null,
+      client_id: clientId,
       client_name: clientName.trim() || null,
       client_phone: clientPhone.trim() || null,
     }
@@ -354,13 +391,28 @@ export default function SellPage() {
       setProcessing(false)
       setShowPay(false)
       setMobileCart(false)
-      setClientName(''); setClientPhone(''); setMpesaRef('')
+      setClientId(null); setClientName(''); setClientPhone(''); setMpesaRef('')
       setCashAmount(''); setMpesaAmount('')
       alert('Sale saved offline. It will sync automatically when you are back online.')
       return
     }
 
-    // ── Online: save to Supabase directly ──
+    // ── Online: resolve or create client if needed ──
+    let resolvedClientId = clientId
+    if (!resolvedClientId && clientName.trim()) {
+      const { data: existing } = await supabase.from('clients').select('id')
+        .ilike('name', clientName.trim()).limit(1).single()
+      if (existing) {
+        resolvedClientId = existing.id
+      } else {
+        const { data: newClient } = await supabase.from('clients')
+          .insert({ name: clientName.trim(), phone: clientPhone.trim() || null })
+          .select('id').single()
+        resolvedClientId = newClient?.id ?? null
+      }
+      if (resolvedClientId) saleData.client_id = resolvedClientId
+    }
+
     const { data: sale, error: err } = await supabase.from('sales').insert(saleData).select('id').single()
     if (err || !sale) { setProcessing(false); alert('Failed to save sale: ' + (err?.message ?? 'unknown error')); return }
 
@@ -368,7 +420,7 @@ export default function SellPage() {
     if (itemsErr) { alert('Failed to save sale items: ' + itemsErr.message); setProcessing(false); return }
 
     if (creditData) {
-      const { error: creditErr } = await supabase.from('credits').insert({ sale_id: sale.id, ...creditData })
+      const { error: creditErr } = await supabase.from('credits').insert({ sale_id: sale.id, client_id: resolvedClientId, ...creditData })
       if (creditErr) { alert('Sale saved but credit record failed: ' + creditErr.message) }
     }
     try { sessionStorage.removeItem('mabruk_cart') } catch {}
@@ -448,16 +500,77 @@ export default function SellPage() {
               <div className="relative">
                 <User size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.muted }} />
                 <input placeholder="Customer name" value={clientName}
-                  onChange={e => setClientName(e.target.value)}
+                  onChange={e => {
+                    const val = e.target.value
+                    setClientName(val)
+                    if (clientId) { setClientId(null) }
+                    if (val.trim().length >= 1) {
+                      const lower = val.trim().toLowerCase()
+                      setClientSuggestions(clientsList.filter(c =>
+                        c.name.toLowerCase().includes(lower) ||
+                        c.phone?.toLowerCase().includes(lower)
+                      ).slice(0, 5))
+                      setShowClientPicker(true)
+                    } else {
+                      setShowClientPicker(false)
+                      setClientSuggestions([])
+                    }
+                  }}
+                  onFocus={() => {
+                    if (clientName.trim().length >= 1 && clientSuggestions.length > 0) {
+                      setShowClientPicker(true)
+                    }
+                  }}
+                  onBlur={() => {
+                    // Delay to allow suggestion click (onMouseDown preventDefault keeps focus)
+                    setTimeout(() => setShowClientPicker(false), 150)
+                  }}
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg border text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#5B2A86]/30"
-                  style={{ borderColor: C.border, background: C.bg }} />
+                  style={{ borderColor: clientId ? C.primary : C.border, background: C.bg }} />
+                {clientId && (
+                  <button onClick={() => { setClientId(null); setClientName(''); setClientPhone('') }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{ background: C.primaryLight }}>
+                    <X size={10} style={{ color: C.primary }} />
+                  </button>
+                )}
+                {showClientPicker && clientSuggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 rounded-xl overflow-hidden z-10"
+                    style={{ background: C.surface, border: `1.5px solid ${C.border}`, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+                    {clientSuggestions.map(c => (
+                      <button key={c.id}
+                        onClick={() => {
+                          setClientId(c.id)
+                          setClientName(c.name)
+                          setClientPhone(c.phone || '')
+                          setShowClientPicker(false)
+                          setClientSuggestions([])
+                        }}
+                        className="w-full text-left px-3 py-2.5 flex items-center gap-2 transition-colors"
+                        style={{ borderBottom: `1px solid ${C.border}` }}
+                        onMouseDown={e => e.preventDefault()}>
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+                          style={{ background: C.primaryLight, color: C.primary, fontSize: 11, fontWeight: 800 }}>
+                          {c.name[0].toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] font-bold truncate" style={{ color: C.fg }}>{c.name}</div>
+                          {c.phone && (
+                            <div className="text-[10px] font-semibold" style={{ color: C.muted }}>{c.phone}</div>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="relative">
                 <Phone size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: C.muted }} />
                 <input placeholder="Phone (for WhatsApp receipt)" value={clientPhone}
                   onChange={e => setClientPhone(e.target.value)}
+                  readOnly={!!clientId}
                   className="w-full pl-9 pr-3 py-2.5 rounded-lg border text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#5B2A86]/30"
-                  style={{ borderColor: C.border, background: C.bg }} />
+                  style={{ borderColor: C.border, background: clientId ? '#F3F0F6' : C.bg }} />
               </div>
               {clientPhone.trim() && (
                 <div className="text-[10px] font-semibold px-1 flex items-center gap-1" style={{ color: C.success }}>

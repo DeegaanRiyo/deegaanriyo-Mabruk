@@ -360,7 +360,7 @@ export default function SalesPage() {
                         {outstanding > 0 ? (
                           <span className="text-[10px] font-black px-2 py-1 rounded-md"
                             style={{ background: C.dangerLight, color: C.danger }}>
-                            -{fmt(outstanding)}
+                            Owes {fmt(outstanding)}
                           </span>
                         ) : (
                           <span className="text-[10px] font-black px-2 py-1 rounded-md"

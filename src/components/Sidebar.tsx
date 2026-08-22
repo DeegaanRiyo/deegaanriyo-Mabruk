@@ -18,6 +18,7 @@ import {
   UserCircle,
   Download,
   UserCog,
+  Contact,
 } from 'lucide-react'
 
 interface NavItem {
@@ -62,8 +63,9 @@ const NAV: NavSection[] = [
     label: 'FINANCES',
     ownerOnly: true,
     items: [
-      { href: '/finances', icon: <Wallet size={15} strokeWidth={2} />, label: 'Overview', exact: true },
-      { href: '/credits',  icon: <Users  size={15} strokeWidth={2} />, label: 'Credits (Deni)' },
+      { href: '/finances', icon: <Wallet  size={15} strokeWidth={2} />, label: 'Overview', exact: true },
+      { href: '/clients',  icon: <Contact size={15} strokeWidth={2} />, label: 'Clients' },
+      { href: '/credits',  icon: <Users   size={15} strokeWidth={2} />, label: 'Credits (Deni)' },
     ],
   },
   {
