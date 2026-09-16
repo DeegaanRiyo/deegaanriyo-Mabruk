@@ -210,9 +210,13 @@ export default function AddStockPage() {
 
   // ── Save ──────────────────────────────────────────────────
   async function handleSave() {
+    console.log('[SAVE] handleSave called, tab:', tab, 'isManual:', isManual)
     const itemsToSave = isManual ? validManualItems : activePdfItems
+    console.log('[SAVE] items to save:', itemsToSave.length, 'supplier:', supplierName.trim())
     if (itemsToSave.length === 0 || !supplierName.trim()) {
-      setError(supplierName.trim() ? 'Add at least one item with name, qty, and cost' : 'Enter supplier name')
+      const msg = supplierName.trim() ? 'Add at least one item with name, qty, and cost' : 'Enter supplier name'
+      console.log('[SAVE] validation failed:', msg)
+      setError(msg)
       return
     }
     setSaving(true)
@@ -324,6 +328,7 @@ export default function AddStockPage() {
         p_customer_name:  (!isManual && receipt) ? (receipt.receipt.customer || null) : null,
         p_items:          rpcItems,
       })
+      console.log('[SAVE] RPC result:', rpcErr ? rpcErr.message : 'OK')
       if (rpcErr) throw new Error(rpcErr.message)
 
       // 4. Sell price updates (safe to do after — worst case they fail
@@ -341,7 +346,9 @@ export default function AddStockPage() {
       if (createdProductIds.length > 0) {
         await supabase.from('products').delete().in('id', createdProductIds)
       }
-      setError(err instanceof Error ? err.message : 'Save failed')
+      const errMsg = err instanceof Error ? err.message : 'Save failed'
+      console.error('[SAVE] Error:', errMsg, err)
+      setError(errMsg)
       setSaving(false)
     }
   }
