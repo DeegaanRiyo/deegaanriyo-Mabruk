@@ -6,15 +6,23 @@
 
 -- ── Suppliers ──────────────────────────────────────────────
 -- Already has RLS enabled with anon_all policy; add authenticated
-CREATE POLICY auth_all ON suppliers
-  FOR ALL TO authenticated
-  USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='suppliers' AND policyname='auth_all') THEN
+    CREATE POLICY auth_all ON suppliers FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- ── Products ───────────────────────────────────────────────
 -- Enable RLS if not already, then grant both roles
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
-CREATE POLICY products_anon  ON products FOR ALL TO anon          USING (true) WITH CHECK (true);
-CREATE POLICY products_auth  ON products FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='products' AND policyname='products_anon') THEN
+    CREATE POLICY products_anon ON products FOR ALL TO anon USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='products' AND policyname='products_auth') THEN
+    CREATE POLICY products_auth ON products FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- ── Purchase Orders ────────────────────────────────────────
 ALTER TABLE purchase_orders ENABLE ROW LEVEL SECURITY;

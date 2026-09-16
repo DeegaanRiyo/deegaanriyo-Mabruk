@@ -7,7 +7,7 @@ import { Product, Client, isMultiUnit, isWeightProduct, UNIT_LABELS, UnitType, g
 import { fmt } from '@/lib/utils'
 import { cacheProducts, getCachedProducts, cacheClients, getCachedClients, queueSale, isOnline } from '@/lib/offline'
 import { useConnection } from '@/lib/connection'
-import { Search, Plus, Minus, Trash2, ShoppingCart, X, ChevronDown, User, Phone, CreditCard, Banknote, ArrowRight, WifiOff } from 'lucide-react'
+import { Search, Plus, Trash2, ShoppingCart, X, ChevronDown, User, Phone, CreditCard, Banknote, ArrowRight, WifiOff } from 'lucide-react'
 
 // ── Design tokens ───────────────────────────────────────────────────────────
 const C = {
@@ -35,78 +35,103 @@ interface CartItem {
   product: Product
   quantity: number
   mode: 'unit' | 'piece'
+  customPrice: number | null  // user-overridden sell price (null = use default)
 }
 
 type PayMethod = 'cash' | 'mpesa' | 'split'
 
 const fmtQty = (q: number) => q === 0.5 ? '½' : q % 1 === 0.5 ? `${Math.floor(q)}½` : String(q)
 
-function CartLine({ c, unitPrice, onQty, onRemove }: {
+function CartLine({ c, unitPrice, costPrice, onRemove, onPriceChange, onQtyChange, priceInput, qtyInput }: {
   c: CartItem
   unitPrice: number
-  onQty: (pid: string, mode: 'unit' | 'piece', d: number) => void
+  costPrice: number
   onRemove: (pid: string, mode: 'unit' | 'piece') => void
+  onPriceChange: (pid: string, mode: 'unit' | 'piece', val: string) => void
+  onQtyChange: (pid: string, mode: 'unit' | 'piece', val: string) => void
+  priceInput: string
+  qtyInput: string
 }) {
   const isWt = isWeightProduct(c.product)
+  const multi = isMultiUnit(c.product)
   const uLbl = (UNIT_LABELS[c.product.unit_type as UnitType] || c.product.unit_type).toLowerCase()
+  const lineTotal = unitPrice * c.quantity
+  const isEdited = c.customPrice !== null
+  // Unit label for the qty field
+  const qtyUnit = c.mode === 'unit'
+    ? uLbl
+    : isWt ? 'kg' : 'pcs'
+  // Allow decimals only for kg or half-unit modes
+  const allowDecimal = isWt || (c.mode === 'unit' && multi)
   return (
-    <div className="flex items-center gap-2 py-2.5 px-3"
-      style={{ borderBottom: `1px solid ${C.border}` }}>
-      <div className="flex-1 min-w-0">
-        <div className="truncate text-[13px] font-bold" style={{ color: C.fg }}>
-          {c.product.name}
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          {c.mode === 'unit' ? (
-            <span className="text-[10px] font-bold px-1.5 rounded"
-              style={{ background: C.primaryLight, color: C.primary }}>
-              {isWt
-                ? `${fmtQty(c.quantity)} ${uLbl} (${(c.product.pieces_per_unit || 1) * c.quantity}KG)`
-                : `${fmtQty(c.quantity)} ${uLbl}`}
-            </span>
-          ) : isWt ? (
-            <span className="text-[10px] font-bold px-1.5 rounded"
-              style={{ background: C.successLight, color: C.success }}>
-              {fmtQty(c.quantity)} KG
-            </span>
-          ) : (
-            <>
-              {c.product.size && (
-                <span className="text-[10px] font-semibold" style={{ color: C.muted }}>{c.product.size}</span>
-              )}
-              <span className="text-[10px] font-bold px-1.5 rounded"
-                style={{ background: C.successLight, color: C.success }}>
-                {c.quantity} pc
-              </span>
-            </>
+    <div className="px-3 py-2.5" style={{ borderBottom: `1px solid ${C.border}` }}>
+      {/* Top: product name + remove */}
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <div className="truncate text-[13px] font-bold" style={{ color: C.fg }}>
+            {c.product.name}
+          </div>
+          {c.product.size && (
+            <span className="text-[10px] font-semibold flex-shrink-0" style={{ color: C.muted }}>{c.product.size}</span>
           )}
-          <span className="text-[10px] tabnum font-semibold" style={{ color: C.muted }}>
-            @ {fmt(unitPrice)}{c.mode === 'piece' && (isWt ? '/kg' : '/pc') || `/${uLbl}`}
-          </span>
         </div>
-      </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
-        <button onClick={() => onQty(c.product.id, c.mode, -1)}
-          className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-transform"
-          style={{ background: C.primaryLight, color: C.primary }}>
-          <Minus size={13} strokeWidth={2.5} />
-        </button>
-        <span className="w-8 text-center text-sm font-black tabnum" style={{ color: C.fg }}>
-          {fmtQty(c.quantity)}
-        </span>
-        <button onClick={() => onQty(c.product.id, c.mode, 1)}
-          className="w-7 h-7 rounded-lg flex items-center justify-center active:scale-90 transition-transform"
-          style={{ background: C.primaryLight, color: C.primary }}>
-          <Plus size={13} strokeWidth={2.5} />
+        <button onClick={() => onRemove(c.product.id, c.mode)}
+          className="w-6 h-6 flex items-center justify-center flex-shrink-0 rounded active:scale-90 transition-transform"
+          style={{ color: C.danger, background: C.dangerLight }}>
+          <Trash2 size={11} />
         </button>
       </div>
-      <button onClick={() => onRemove(c.product.id, c.mode)}
-        className="w-7 h-7 flex items-center justify-center flex-shrink-0 rounded-lg active:scale-90 transition-transform"
-        style={{ color: C.danger, background: C.dangerLight }}>
-        <Trash2 size={12} />
-      </button>
-      <div className="w-[72px] text-right text-[13px] font-black tabnum flex-shrink-0" style={{ color: C.fg }}>
-        {fmt(unitPrice * c.quantity)}
+      {/* Single row: Cost Price | Sell Price | Qty + unit | Total */}
+      <div className="flex items-center gap-2">
+        {/* Cost Price */}
+        <div className="text-center flex-shrink-0" style={{ width: 70 }}>
+          <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: C.muted }}>Cost</div>
+          <div className="tabnum text-[13px] font-bold mt-0.5" style={{ color: C.muted }}>
+            {fmt(costPrice)}
+          </div>
+        </div>
+        {/* Sell Price */}
+        <div className="text-center flex-shrink-0" style={{ width: 85 }}>
+          <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: C.primary }}>Sell</div>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={priceInput}
+            onChange={e => onPriceChange(c.product.id, c.mode, e.target.value)}
+            className="w-full px-2 py-1 mt-0.5 rounded border-2 text-[13px] tabnum font-black text-center focus:outline-none focus:ring-2 focus:ring-[#5B2A86]/30"
+            style={{
+              borderColor: isEdited ? C.primary : C.border,
+              background: isEdited ? C.primaryLight : C.bg,
+              color: C.primary,
+            }}
+          />
+        </div>
+        {/* Qty with unit label */}
+        <div className="text-center flex-shrink-0" style={{ width: 80 }}>
+          <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: C.success }}>
+            Qty <span className="normal-case">({qtyUnit})</span>
+          </div>
+          <input
+            type="text"
+            inputMode={allowDecimal ? 'decimal' : 'numeric'}
+            value={qtyInput}
+            onChange={e => {
+              let val = e.target.value
+              // For non-decimal: strip dots
+              if (!allowDecimal) val = val.replace(/\./g, '')
+              onQtyChange(c.product.id, c.mode, val)
+            }}
+            className="w-full px-2 py-1 mt-0.5 rounded border-2 text-[13px] tabnum font-black text-center focus:outline-none focus:ring-2 focus:ring-[#2E7D5B]/30"
+            style={{ borderColor: C.border, background: C.bg, color: C.fg }}
+          />
+        </div>
+        {/* Total */}
+        <div className="ml-auto text-right flex-shrink-0" style={{ minWidth: 70 }}>
+          <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: C.muted }}>Total</div>
+          <div className="tabnum text-[14px] font-black mt-0.5" style={{ color: C.fg }}>
+            {fmt(lineTotal)}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -286,32 +311,72 @@ export default function SellPage() {
         if (next > max) return prev
         return prev.map(c => c.product.id === product.id && c.mode === mode ? { ...c, quantity: next } : c)
       }
-      return [...prev, { product, quantity: qty, mode }]
+      return [...prev, { product, quantity: qty, mode, customPrice: null }]
     })
     setPendingProduct(null)
   }
 
-  function updQty(pid: string, mode: 'unit' | 'piece', d: number) {
-    setCart(prev => prev.map(c => {
-      if (c.product.id !== pid || c.mode !== mode) return c
-      const isWt = isWeightProduct(c.product)
-      const step = (isWt && mode === 'piece') ? 0.5
-        : (mode === 'unit' && isMultiUnit(c.product) && !isWt) ? 0.5
-        : 1
-      const n = c.quantity + d * step
-      if (n <= 0) return null
-      const ppu = c.product.pieces_per_unit || 1
-      const max = mode === 'unit' ? c.product.stock_qty / ppu : c.product.stock_qty
-      return n > max ? c : { ...c, quantity: n }
-    }).filter(Boolean) as CartItem[])
-  }
-
   function rem(pid: string, mode: 'unit' | 'piece') {
     setCart(prev => prev.filter(c => !(c.product.id === pid && c.mode === mode)))
+    const key = priceInputKey(pid, mode)
+    setPriceInputs(prev => { const next = { ...prev }; delete next[key]; return next })
+    setQtyInputs(prev => { const next = { ...prev }; delete next[key]; return next })
+  }
+
+  // Track raw input strings for sell price and qty so user can fully clear/type
+  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({})
+  const [qtyInputs, setQtyInputs] = useState<Record<string, string>>({})
+
+  function priceInputKey(pid: string, mode: 'unit' | 'piece') { return `${pid}-${mode}` }
+
+  function getPriceInput(c: CartItem): string {
+    const key = priceInputKey(c.product.id, c.mode)
+    if (key in priceInputs) return priceInputs[key]
+    // Not yet edited — show default
+    const def = c.mode === 'unit' ? getEffectiveSellPrice(c.product) : getEffectiveSellPricePiece(c.product)
+    return String(def)
   }
 
   function price(c: CartItem) {
+    if (c.customPrice !== null) return c.customPrice
     return c.mode === 'unit' ? getEffectiveSellPrice(c.product) : getEffectiveSellPricePiece(c.product)
+  }
+
+  function costPrice(c: CartItem) {
+    const ppu = c.product.pieces_per_unit || 1
+    return c.mode === 'unit' ? c.product.buy_price * ppu : c.product.buy_price
+  }
+
+  function updPrice(pid: string, mode: 'unit' | 'piece', val: string) {
+    const key = priceInputKey(pid, mode)
+    setPriceInputs(prev => ({ ...prev, [key]: val }))
+    setCart(prev => prev.map(c => {
+      if (c.product.id !== pid || c.mode !== mode) return c
+      const num = parseFloat(val)
+      if (val === '' || isNaN(num)) return { ...c, customPrice: 0 }
+      const defaultPrice = mode === 'unit' ? getEffectiveSellPrice(c.product) : getEffectiveSellPricePiece(c.product)
+      if (num === defaultPrice) return { ...c, customPrice: null }
+      return { ...c, customPrice: num }
+    }))
+  }
+
+  function getQtyInput(c: CartItem): string {
+    const key = priceInputKey(c.product.id, c.mode)
+    if (key in qtyInputs) return qtyInputs[key]
+    return String(c.quantity)
+  }
+
+  function updQtyDirect(pid: string, mode: 'unit' | 'piece', val: string) {
+    const key = priceInputKey(pid, mode)
+    setQtyInputs(prev => ({ ...prev, [key]: val }))
+    setCart(prev => prev.map(c => {
+      if (c.product.id !== pid || c.mode !== mode) return c
+      const num = parseFloat(val)
+      if (val === '' || isNaN(num) || num <= 0) return { ...c, quantity: 0 }
+      const ppu = c.product.pieces_per_unit || 1
+      const max = mode === 'unit' ? c.product.stock_qty / ppu : c.product.stock_qty
+      return { ...c, quantity: Math.min(num, max) }
+    }))
   }
 
   function inCart(pid: string) { return cart.filter(c => c.product.id === pid).reduce((s, c) => s + c.quantity, 0) }
@@ -355,9 +420,10 @@ export default function SellPage() {
     const itemsData = cart.map(c => {
       const ppu = c.product.pieces_per_unit || 1
       const qtyPieces = c.mode === 'unit' ? c.quantity * ppu : c.quantity
+      const unitSellPrice = price(c)
       const pricePerPiece = c.mode === 'unit'
-        ? getEffectiveSellPricePiece(c.product)
-        : price(c)
+        ? (c.customPrice !== null ? c.customPrice / ppu : getEffectiveSellPricePiece(c.product))
+        : unitSellPrice
       return {
         product_id: c.product.id,
         quantity: qtyPieces,
@@ -365,7 +431,7 @@ export default function SellPage() {
         sell_qty: c.quantity,
         unit_price: pricePerPiece,
         buy_price: c.product.buy_price,
-        line_total: price(c) * c.quantity,
+        line_total: unitSellPrice * c.quantity,
       }
     })
 
@@ -462,7 +528,7 @@ export default function SellPage() {
           <div className="text-[11px] mt-1 opacity-60">Tap a product to add it</div>
         </div>
       ) : (
-        <div>{cart.map(c => <CartLine key={`${c.product.id}-${c.mode}`} c={c} unitPrice={price(c)} onQty={updQty} onRemove={rem} />)}</div>
+        <div>{cart.map(c => <CartLine key={`${c.product.id}-${c.mode}`} c={c} unitPrice={price(c)} costPrice={costPrice(c)} onRemove={rem} onPriceChange={updPrice} onQtyChange={updQtyDirect} priceInput={getPriceInput(c)} qtyInput={getQtyInput(c)} />)}</div>
       )}
     </>
   )
@@ -865,7 +931,7 @@ export default function SellPage() {
         </div>
 
         {/* ── Desktop cart sidebar ── */}
-        <div className="hidden md:flex flex-col w-[340px] flex-shrink-0" style={{ borderLeft: `2px solid ${C.border}`, background: C.surface }}>
+        <div className="hidden md:flex flex-col w-[460px] flex-shrink-0" style={{ borderLeft: `2px solid ${C.border}`, background: C.surface }}>
           <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: `2px solid ${C.border}`, background: C.headerBg }}>
             <ShoppingCart size={15} style={{ color: C.primary }} />
             <span className="font-black text-sm" style={{ color: C.fg }}>Sale</span>

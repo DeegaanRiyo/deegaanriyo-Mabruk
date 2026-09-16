@@ -138,8 +138,10 @@ export default function AddStockPage() {
 
   // ── PDF: Upload & Parse ───────────────────────────────────
   const handleFile = useCallback(async (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setError('Please upload a PDF file')
+    const ext = file.name.toLowerCase().split('.').pop()
+    const allowed = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp']
+    if (!ext || !allowed.includes(ext)) {
+      setError('Please upload a PDF or image (JPEG, PNG, GIF, WebP)')
       return
     }
     setUploading(true)
@@ -670,7 +672,7 @@ export default function AddStockPage() {
           onClick={() => fileRef.current?.click()}
           className="bg-white rounded-xl p-8 cursor-pointer transition-all hover:border-[#5B2A86]"
           style={{ boxShadow: SHADOW, border: '2px dashed #E8E3ED', textAlign: 'center' }}>
-          <input ref={fileRef} type="file" accept=".pdf"
+          <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,image/*"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
             className="hidden" />
           {uploading ? (
@@ -688,8 +690,8 @@ export default function AddStockPage() {
                 <Upload size={28} color={PRIMARY} />
               </div>
               <div>
-                <p className="text-sm font-bold" style={{ color: '#1E1626' }}>Drop supplier receipt PDF here</p>
-                <p className="text-xs mt-1" style={{ color: MUTED }}>or click to browse · PDF only</p>
+                <p className="text-sm font-bold" style={{ color: '#1E1626' }}>Drop supplier receipt here</p>
+                <p className="text-xs mt-1" style={{ color: MUTED }}>or click to browse · PDF, JPEG, PNG, WebP</p>
               </div>
             </div>
           )}
