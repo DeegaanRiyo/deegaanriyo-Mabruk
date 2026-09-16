@@ -38,7 +38,7 @@ BEGIN
   ) VALUES (
     p_supplier_name, p_supplier_phone, p_supplier_id,
     p_total_amount, p_paid_amount, p_notes,
-    p_receipt_number, p_receipt_type, p_receipt_date,
+    p_receipt_number, p_receipt_type, p_receipt_date::DATE,
     p_discount, p_vat_total, p_served_by, p_customer_name
   ) RETURNING id INTO v_order_id;
 
