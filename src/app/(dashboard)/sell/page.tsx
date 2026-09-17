@@ -52,6 +52,12 @@ function CartLine({ c, unitPrice, costPrice, onRemove, onPriceChange, onQtyChang
   priceInput: string
   qtyInput: string
 }) {
+  // Clear-on-focus: show empty when tapped, restore if blurred without typing
+  const [priceFocusEmpty, setPriceFocusEmpty] = useState(false)
+  const [qtyFocusEmpty, setQtyFocusEmpty] = useState(false)
+  const priceBeforeFocus = useRef(priceInput)
+  const qtyBeforeFocus = useRef(qtyInput)
+
   const isWt = isWeightProduct(c.product)
   const multi = isMultiUnit(c.product)
   const uLbl = (UNIT_LABELS[c.product.unit_type as UnitType] || c.product.unit_type).toLowerCase()
@@ -96,8 +102,13 @@ function CartLine({ c, unitPrice, costPrice, onRemove, onPriceChange, onQtyChang
           <input
             type="text"
             inputMode="decimal"
-            value={priceInput}
-            onChange={e => onPriceChange(c.product.id, c.mode, e.target.value)}
+            value={priceFocusEmpty ? '' : priceInput}
+            onFocus={() => { priceBeforeFocus.current = priceInput; setPriceFocusEmpty(true) }}
+            onChange={e => { setPriceFocusEmpty(false); onPriceChange(c.product.id, c.mode, e.target.value) }}
+            onBlur={() => {
+              if (priceFocusEmpty || !priceInput) onPriceChange(c.product.id, c.mode, priceBeforeFocus.current)
+              setPriceFocusEmpty(false)
+            }}
             className="w-full px-2 py-1 mt-0.5 rounded border-2 text-[13px] tabnum font-black text-center focus:outline-none focus:ring-2 focus:ring-[#5B2A86]/30"
             style={{
               borderColor: isEdited ? C.primary : C.border,
@@ -114,12 +125,17 @@ function CartLine({ c, unitPrice, costPrice, onRemove, onPriceChange, onQtyChang
           <input
             type="text"
             inputMode={allowDecimal ? 'decimal' : 'numeric'}
-            value={qtyInput}
+            value={qtyFocusEmpty ? '' : qtyInput}
+            onFocus={() => { qtyBeforeFocus.current = qtyInput; setQtyFocusEmpty(true) }}
             onChange={e => {
+              setQtyFocusEmpty(false)
               let val = e.target.value
-              // For non-decimal: strip dots
               if (!allowDecimal) val = val.replace(/\./g, '')
               onQtyChange(c.product.id, c.mode, val)
+            }}
+            onBlur={() => {
+              if (qtyFocusEmpty || !qtyInput) onQtyChange(c.product.id, c.mode, qtyBeforeFocus.current)
+              setQtyFocusEmpty(false)
             }}
             className="w-full px-2 py-1 mt-0.5 rounded border-2 text-[13px] tabnum font-black text-center focus:outline-none focus:ring-2 focus:ring-[#2E7D5B]/30"
             style={{ borderColor: C.border, background: C.bg, color: C.fg }}
@@ -179,11 +195,12 @@ export default function SellPage() {
   const [searching, setSearching] = useState(false)
   const productsRef = useRef<Product[]>([])
   productsRef.current = products
+  const didInitialLoad = useRef(false)
 
   const load = useCallback(async (append = false, term = '') => {
     if (append) {
       setLoadingMore(true)
-    } else if (productsRef.current.length === 0) {
+    } else if (!didInitialLoad.current) {
       setLoading(true)
     } else {
       setSearching(true)
@@ -206,6 +223,7 @@ export default function SellPage() {
         setProducts(filtered)
         setHasMore(false)
       }
+      didInitialLoad.current = true
       setLoading(false)
       setLoadingMore(false)
       setSearching(false)
@@ -226,6 +244,7 @@ export default function SellPage() {
     if (error && !data) {
       const cached = await getCachedProducts()
       if (cached) setProducts(cached.filter(p => p.is_active && p.stock_qty > 0))
+      didInitialLoad.current = true
       setLoading(false); setLoadingMore(false); setSearching(false)
       return
     }
@@ -233,6 +252,7 @@ export default function SellPage() {
     const rows = (data ?? []) as Product[]
     if (append) setProducts(prev => [...prev, ...rows]); else setProducts(rows)
     setHasMore(rows.length === 60)
+    didInitialLoad.current = true
     setLoading(false)
     setLoadingMore(false)
     setSearching(false)
