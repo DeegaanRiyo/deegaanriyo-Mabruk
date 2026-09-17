@@ -303,6 +303,11 @@ export default function SellPage() {
 
   function addMode(product: Product, mode: 'unit' | 'piece', qty = 1) {
     const ppu = product.pieces_per_unit || 1
+    // Weight KG items: clear price display so it recalculates for new total qty
+    if (isWeightProduct(product) && mode === 'piece') {
+      const key = priceInputKey(product.id, mode)
+      setPriceInputs(prev => { const next = { ...prev }; delete next[key]; return next })
+    }
     setCart(prev => {
       const ex = prev.find(c => c.product.id === product.id && c.mode === mode)
       if (ex) {
@@ -332,7 +337,11 @@ export default function SellPage() {
   function getPriceInput(c: CartItem): string {
     const key = priceInputKey(c.product.id, c.mode)
     if (key in priceInputs) return priceInputs[key]
-    // Not yet edited — show default
+    // Weight products in KG mode: show line total (per-KG rate × qty)
+    if (isWeightProduct(c.product) && c.mode === 'piece') {
+      const perKg = c.customPrice ?? getEffectiveSellPricePiece(c.product)
+      return String(Math.round(perKg * c.quantity))
+    }
     const def = c.mode === 'unit' ? getEffectiveSellPrice(c.product) : getEffectiveSellPricePiece(c.product)
     return String(def)
   }
@@ -344,6 +353,8 @@ export default function SellPage() {
 
   function costPrice(c: CartItem) {
     const ppu = c.product.pieces_per_unit || 1
+    // Weight KG items: show proportional cost for the qty
+    if (isWeightProduct(c.product) && c.mode === 'piece') return Math.round(c.product.buy_price * c.quantity)
     return c.mode === 'unit' ? c.product.buy_price * ppu : c.product.buy_price
   }
 
@@ -354,6 +365,13 @@ export default function SellPage() {
       if (c.product.id !== pid || c.mode !== mode) return c
       const num = parseFloat(val)
       if (val === '' || isNaN(num)) return { ...c, customPrice: 0 }
+      // Weight KG items: sell field is line total — back-calculate per-KG rate
+      if (isWeightProduct(c.product) && c.mode === 'piece' && c.quantity > 0) {
+        const perKg = num / c.quantity
+        const defaultTotal = Math.round(getEffectiveSellPricePiece(c.product) * c.quantity)
+        if (num === defaultTotal) return { ...c, customPrice: null }
+        return { ...c, customPrice: perKg }
+      }
       const defaultPrice = mode === 'unit' ? getEffectiveSellPrice(c.product) : getEffectiveSellPricePiece(c.product)
       if (num === defaultPrice) return { ...c, customPrice: null }
       return { ...c, customPrice: num }
@@ -369,6 +387,11 @@ export default function SellPage() {
   function updQtyDirect(pid: string, mode: 'unit' | 'piece', val: string) {
     const key = priceInputKey(pid, mode)
     setQtyInputs(prev => ({ ...prev, [key]: val }))
+    // Weight KG items: clear price display so it recalculates from per-KG rate × new qty
+    const item = cart.find(c => c.product.id === pid && c.mode === mode)
+    if (item && isWeightProduct(item.product) && mode === 'piece') {
+      setPriceInputs(prev => { const next = { ...prev }; delete next[key]; return next })
+    }
     setCart(prev => prev.map(c => {
       if (c.product.id !== pid || c.mode !== mode) return c
       const num = parseFloat(val)
