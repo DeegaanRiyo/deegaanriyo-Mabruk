@@ -28,12 +28,14 @@ export function isMultiUnit(p: { pieces_per_unit: number }): boolean {
  *  sealed packets/tins sold by piece. */
 export function isWeightProduct(p: { size: string | null; pieces_per_unit: number }): boolean {
   if (!p.size) return false
+  const s = p.size.trim().toUpperCase()
+  // Bare "KG" means sold loose by weight (spices, etc.) — always a weight product
+  if (s === 'KG') return true
   const ppu = p.pieces_per_unit || 1
   if (ppu <= 1) return false
-  const s = p.size.trim().toUpperCase()
-  // Must be plain "KG" or "25KG" — no multiplier like "24x1KG"
+  // Must be plain "25KG" — no multiplier like "24x1KG"
   const m = s.match(/^(\d+)KG$/i)
-  if (!m) return s === 'KG' // bare "KG" (sold loose by weight)
+  if (!m) return false
   // The KG number must match ppu — e.g. "25KG" with ppu=25 is weight,
   // but "1KG" with ppu=24 means 24 sealed 1KG packets (piece product)
   return parseInt(m[1]) === ppu
