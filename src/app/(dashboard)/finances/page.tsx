@@ -127,10 +127,10 @@ export default function FinancesPage() {
     const startISO = getStartISO()
     const endISO   = getEndISO()
 
-    // Period-filtered sales (for cash/mpesa breakdown)
+    // Period-filtered sales (created_at needed for chart grouping)
     let salesQ = supabase
       .from('sales')
-      .select('id, total, paid_amount, cash_amount, mpesa_amount, method')
+      .select('id, total, paid_amount, cash_amount, mpesa_amount, method, created_at')
       .gte('created_at', startISO)
     if (endISO) salesQ = salesQ.lte('created_at', endISO)
 
@@ -186,38 +186,83 @@ export default function FinancesPage() {
 
     setStats({ revenue, totalSales, cashCollected, mpesaCollected, cogsSold, grossProfit, expenses, netProfit, creditOwed, supplierDebt, cogsPurchased, stockValue, stockItems })
 
-    // Fetch last 7 days of sales for chart
-    const weekAgo = new Date()
-    weekAgo.setDate(weekAgo.getDate() - 6)
-    weekAgo.setHours(0, 0, 0, 0)
-    const { data: weekSales } = await supabase
-      .from('sales').select('total, created_at')
-      .gte('created_at', weekAgo.toISOString())
-      .order('created_at')
-    const { data: weekItems } = await supabase
-      .from('sale_items')
-      .select('quantity, unit_price, buy_price, sales!inner(created_at)')
-      .gte('sales.created_at', weekAgo.toISOString())
+    // Build chart from already-fetched data.
+    // For 'today' the stats window is < 1 day, so widen the chart to 7 days
+    // for context (requires a small extra fetch). All other periods reuse
+    // salesRows / saleItems — no extra round-trips.
+    let chartSales  = (salesRows ?? []) as R[]
+    let chartItems  = (saleItems  ?? []) as R[]
+    let chartStart  = new Date(startISO)
+    let chartEnd    = endISO ? new Date(endISO) : new Date()
 
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    if (period === 'today') {
+      const weekAgo = new Date()
+      weekAgo.setDate(weekAgo.getDate() - 6)
+      weekAgo.setHours(0, 0, 0, 0)
+      chartStart = weekAgo
+      const [{ data: ws }, { data: wi }] = await Promise.all([
+        supabase.from('sales').select('total, created_at').gte('created_at', weekAgo.toISOString()),
+        supabase.from('sale_items').select('quantity, unit_price, buy_price, sales!inner(created_at)').gte('sales.created_at', weekAgo.toISOString()),
+      ])
+      chartSales = (ws ?? []) as R[]
+      chartItems = (wi ?? []) as R[]
+    }
+
+    const msPerDay  = 86_400_000
+    const totalDays = Math.max(1, Math.ceil((chartEnd.getTime() - chartStart.getTime()) / msPerDay) + 1)
+    // >14 days: switch to weekly bars so the chart stays readable on mobile.
+    // The week period (7 days) always stays daily; month (15-31 days) goes weekly.
+    const useWeekly = totalDays > 14
+    const dayNames  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
     const days: { label: string; revenue: number; profit: number }[] = []
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(weekAgo)
-      d.setDate(d.getDate() + i)
-      const dayStart = new Date(d); dayStart.setHours(0, 0, 0, 0)
-      const dayEnd = new Date(d); dayEnd.setHours(23, 59, 59, 999)
-      const dayRev = ((weekSales ?? []) as R[])
-        .filter((s) => { const t = new Date(s.created_at as string); return t >= dayStart && t <= dayEnd })
-        .reduce((s: number, r) => s + Number(r.total), 0)
-      const dayProfit = ((weekItems ?? []) as R[])
-        .filter((s) => {
-          const ca = s.sales as Record<string, string> | undefined
-          if (!ca?.created_at) return false
-          const t = new Date(ca.created_at)
-          return t >= dayStart && t <= dayEnd
-        })
-        .reduce((s: number, r) => s + (Number(r.unit_price) - Number(r.buy_price)) * Number(r.quantity), 0)
-      days.push({ label: dayNames[d.getDay()], revenue: dayRev, profit: dayProfit })
+
+    if (!useWeekly) {
+      // Daily bars — one per day in the range
+      for (let i = 0; i < totalDays; i++) {
+        const d = new Date(chartStart)
+        d.setDate(d.getDate() + i)
+        const dayStart = new Date(d); dayStart.setHours(0, 0, 0, 0)
+        const dayEnd   = new Date(d); dayEnd.setHours(23, 59, 59, 999)
+        const dayRev = chartSales
+          .filter(s => { const t = new Date(s.created_at as string); return t >= dayStart && t <= dayEnd })
+          .reduce((s: number, r) => s + Number(r.total), 0)
+        const dayProfit = chartItems
+          .filter(s => {
+            const ca = s.sales as Record<string, string> | undefined
+            if (!ca?.created_at) return false
+            const t = new Date(ca.created_at)
+            return t >= dayStart && t <= dayEnd
+          })
+          .reduce((s: number, r) => s + (Number(r.unit_price) - Number(r.buy_price)) * Number(r.quantity), 0)
+        const label = totalDays <= 7
+          ? dayNames[d.getDay()]
+          : `${d.getDate()}/${d.getMonth() + 1}`
+        days.push({ label, revenue: dayRev, profit: dayProfit })
+      }
+    } else {
+      // Weekly bars — Monday-aligned buckets
+      const firstMon = new Date(chartStart)
+      const dow = firstMon.getDay()
+      firstMon.setDate(firstMon.getDate() - (dow === 0 ? 6 : dow - 1))
+      firstMon.setHours(0, 0, 0, 0)
+      const weekCount = Math.ceil((chartEnd.getTime() - firstMon.getTime()) / (7 * msPerDay))
+      for (let i = 0; i < weekCount; i++) {
+        const wStart = new Date(firstMon); wStart.setDate(wStart.getDate() + i * 7)
+        const wEnd   = new Date(wStart);   wEnd.setDate(wEnd.getDate() + 6); wEnd.setHours(23, 59, 59, 999)
+        const wRev = chartSales
+          .filter(s => { const t = new Date(s.created_at as string); return t >= wStart && t <= wEnd })
+          .reduce((s: number, r) => s + Number(r.total), 0)
+        const wProfit = chartItems
+          .filter(s => {
+            const ca = s.sales as Record<string, string> | undefined
+            if (!ca?.created_at) return false
+            const t = new Date(ca.created_at)
+            return t >= wStart && t <= wEnd
+          })
+          .reduce((s: number, r) => s + (Number(r.unit_price) - Number(r.buy_price)) * Number(r.quantity), 0)
+        days.push({ label: `Wk${i + 1}`, revenue: wRev, profit: wProfit })
+      }
     }
     setDailyData(days)
     setLoading(false)
@@ -439,12 +484,19 @@ export default function FinancesPage() {
             </div>
           </div>
 
-          {/* ── 7-DAY TREND ── */}
+          {/* ── TREND CHART ── */}
           {dailyData.length > 0 && (() => {
             const maxVal = Math.max(...dailyData.map(d => d.revenue), 1)
+            // Infer granularity from bar labels (weekly bars are labelled "Wk1", "Wk2"…)
+            const chartIsWeekly = dailyData[0]?.label.startsWith('Wk') ?? false
+            const chartLabel =
+              period === 'today' || period === 'week' ? 'Last 7 Days' :
+              period === 'month'   ? (chartIsWeekly ? 'This Month (Weekly)' : 'This Month (Daily)') :
+              period === 'quarter' ? 'Last 3 Months (Weekly)' :
+              chartIsWeekly ? 'Custom Range (Weekly)' : 'Custom Range (Daily)'
             return (
               <>
-                <SectionLabel>Last 7 Days</SectionLabel>
+                <SectionLabel>{chartLabel}</SectionLabel>
                 <div className="bg-white rounded-xl p-4" style={{ boxShadow: SHADOW }}>
                   <div className="flex items-end gap-1.5" style={{ height: 120 }}>
                     {dailyData.map((d, i) => {
@@ -482,10 +534,10 @@ export default function FinancesPage() {
                   {/* Legend */}
                   <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: '1px solid #E8E3ED' }}>
                     <div className="text-[10px]" style={{ color: '#6B6373' }}>
-                      7-day total: <span className="font-bold tabnum" style={{ color: '#5B2A86' }}>KES {fmt(dailyData.reduce((s, d) => s + d.revenue, 0))}</span>
+                      Total: <span className="font-bold tabnum" style={{ color: '#5B2A86' }}>KES {fmt(dailyData.reduce((s, d) => s + d.revenue, 0))}</span>
                     </div>
                     <div className="text-[10px]" style={{ color: '#6B6373' }}>
-                      Avg: <span className="font-bold tabnum" style={{ color: '#5B2A86' }}>KES {fmt(Math.round(dailyData.reduce((s, d) => s + d.revenue, 0) / 7))}</span>/day
+                      Avg: <span className="font-bold tabnum" style={{ color: '#5B2A86' }}>KES {fmt(Math.round(dailyData.reduce((s, d) => s + d.revenue, 0) / Math.max(dailyData.length, 1)))}</span>/{dailyData.length > 14 ? 'wk' : 'day'}
                     </div>
                   </div>
                 </div>

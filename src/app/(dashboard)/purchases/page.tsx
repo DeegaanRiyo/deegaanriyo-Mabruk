@@ -48,6 +48,10 @@ export default function PurchasesPage() {
   const [editPaid, setEditPaid] = useState('')
   const [savingPaid, setSavingPaid] = useState(false)
 
+  // Return / remove PO line item
+  const [confirmReturnItem, setConfirmReturnItem] = useState<string | null>(null)
+  const [returningItem, setReturningItem] = useState<string | null>(null)
+
   useEffect(() => { loadData() }, []) // eslint-disable-line
 
   async function loadData() {
@@ -106,9 +110,11 @@ export default function PurchasesPage() {
   async function toggleReceipt(orderId: string) {
     if (expandedReceipt === orderId) {
       setExpandedReceipt(null)
+      setConfirmReturnItem(null)
       return
     }
     setExpandedReceipt(orderId)
+    setConfirmReturnItem(null)
     await loadReceiptItems(orderId)
   }
 
@@ -144,6 +150,79 @@ export default function PurchasesPage() {
       setEditingPO(null)
     }
     setSavingPaid(false)
+  }
+
+  async function handleReturnItem(poItemId: string, orderId: string) {
+    setReturningItem(poItemId)
+    setConfirmReturnItem(null)
+    const { data, error } = await supabase.rpc('return_po_item', { p_po_item_id: poItemId })
+    setReturningItem(null)
+
+    if (error) {
+      alert('Return failed: ' + error.message)
+      return
+    }
+
+    const result = data as { order_deleted: boolean; qty_returned: number }
+
+    if (result.order_deleted) {
+      // Whole PO deleted — remove from supplier view and from orders list
+      // without triggering a full reload (avoids loading flash on detail screen).
+      setOrders(prev => prev.filter(o => o.id !== orderId))
+
+      if (selectedSupplier) {
+        const updatedReceipts = selectedSupplier.receipts.filter(r => r.id !== orderId)
+        if (updatedReceipts.length === 0) {
+          // No receipts left for this supplier — go back to list
+          setSelectedSupplier(null)
+        } else {
+          const newTotal = updatedReceipts.reduce((s, r) => s + r.total_amount, 0)
+          const newPaid  = updatedReceipts.reduce((s, r) => s + r.paid_amount, 0)
+          const newOwed  = updatedReceipts.reduce((s, r) => s + Math.max(0, r.total_amount - r.paid_amount), 0)
+          setSelectedSupplier(prev => prev ? {
+            ...prev,
+            receipts: updatedReceipts,
+            orderCount: updatedReceipts.length,
+            totalSpent: newTotal,
+            totalPaid: newPaid,
+            totalOwed: newOwed,
+          } : prev)
+        }
+      }
+      setExpandedReceipt(null)
+    } else {
+      // One line removed — update items list, receipt header, and orders list
+      // entirely in local state so there is no loading flash.
+      const returnedItem = (receiptItems[orderId] ?? []).find(i => i.id === poItemId)
+      const lineTotal = returnedItem?.line_total ?? 0
+
+      setReceiptItems(prev => {
+        const existing = prev[orderId] ?? []
+        return { ...prev, [orderId]: existing.filter(i => i.id !== poItemId) }
+      })
+
+      // Update the receipt's total_amount in selectedSupplier so the header
+      // reflects the new value immediately.
+      setSelectedSupplier(prev => {
+        if (!prev) return prev
+        const updatedReceipts = prev.receipts.map(r => {
+          if (r.id !== orderId) return r
+          return { ...r, total_amount: Math.max(0, r.total_amount - lineTotal) }
+        })
+        return {
+          ...prev,
+          receipts: updatedReceipts,
+          totalSpent: updatedReceipts.reduce((s, r) => s + r.total_amount, 0),
+          totalOwed:  updatedReceipts.reduce((s, r) => s + Math.max(0, r.total_amount - r.paid_amount), 0),
+        }
+      })
+
+      // Keep the underlying orders array in sync so the supplier card list
+      // shows correct totals if the user navigates back.
+      setOrders(prev => prev.map(o =>
+        o.id !== orderId ? o : { ...o, total_amount: Math.max(0, o.total_amount - lineTotal) }
+      ))
+    }
   }
 
   if (loading) {
@@ -361,27 +440,54 @@ export default function PurchasesPage() {
                         <div className="divide-y" style={{ borderColor: '#F3F0F5' }}>
                           {/* Header */}
                           <div className="grid grid-cols-12 gap-1 py-1.5 text-xs font-bold" style={{ color: MUTED }}>
-                            <div className="col-span-5">Product</div>
+                            <div className="col-span-4">Product</div>
                             <div className="col-span-2 text-right">Qty</div>
                             <div className="col-span-2 text-right">Cost</div>
-                            <div className="col-span-3 text-right">Total</div>
+                            <div className="col-span-2 text-right">Total</div>
+                            <div className="col-span-2 text-right">Return</div>
                           </div>
-                          {items.map(item => (
-                            <div key={item.id} className="grid grid-cols-12 gap-1 py-2 text-xs items-center">
-                              <div className="col-span-5 font-medium truncate" style={{ color: '#1E1626' }}>
-                                {item.product_name}
+                          {items.map(item => {
+                            const isConfirming = confirmReturnItem === item.id
+                            const isReturning  = returningItem === item.id
+                            return (
+                              <div key={item.id} className="grid grid-cols-12 gap-1 py-2 text-xs items-center"
+                                style={{ opacity: isReturning ? 0.4 : 1 }}>
+                                <div className="col-span-4 font-medium truncate" style={{ color: '#1E1626' }}>
+                                  {item.product_name}
+                                </div>
+                                <div className="col-span-2 text-right tabnum" style={{ color: MUTED }}>
+                                  {item.quantity}
+                                </div>
+                                <div className="col-span-2 text-right tabnum" style={{ color: MUTED }}>
+                                  {fmt(item.buy_price)}
+                                </div>
+                                <div className="col-span-2 text-right tabnum font-semibold" style={{ color: '#1E1626' }}>
+                                  {fmt(item.line_total)}
+                                </div>
+                                {/* Return button — two-tap confirm */}
+                                <div className="col-span-2 flex justify-end">
+                                  {isReturning ? (
+                                    <span className="text-[9px]" style={{ color: MUTED }}>...</span>
+                                  ) : isConfirming ? (
+                                    <button
+                                      onClick={() => handleReturnItem(item.id, receipt.id)}
+                                      className="text-[9px] font-bold px-1.5 py-0.5 rounded transition active:scale-95"
+                                      style={{ background: DANGER, color: '#fff' }}>
+                                      Sure?
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => setConfirmReturnItem(item.id)}
+                                      className="p-1 rounded transition active:scale-95"
+                                      style={{ color: DANGER, background: '#FDE8E8' }}
+                                      title="Remove this line from the order">
+                                      <X size={12} />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              <div className="col-span-2 text-right tabnum" style={{ color: MUTED }}>
-                                {item.quantity}
-                              </div>
-                              <div className="col-span-2 text-right tabnum" style={{ color: MUTED }}>
-                                {fmt(item.buy_price)}
-                              </div>
-                              <div className="col-span-3 text-right tabnum font-semibold" style={{ color: '#1E1626' }}>
-                                {fmt(item.line_total)}
-                              </div>
-                            </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       )}
                     </div>

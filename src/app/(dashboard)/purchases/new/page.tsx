@@ -20,6 +20,14 @@ const SUCCESS = 'var(--color-success)'
 const AMBER   = 'var(--color-warning)'
 const DANGER  = 'var(--color-danger)'
 const SHADOW  = 'var(--shadow-card)'
+
+/** PPU=1 on a non-piece unit type with a high rate almost certainly means the
+ *  parser didn't find a pack size and left the default — the carton/bale price
+ *  will be stored as per-piece cost, inflating COGS by the actual PPU factor. */
+function isSuspiciousPpu(ppu: number, unitType: string, rate: number): boolean {
+  return ppu === 1 && unitType !== 'PC' && unitType !== 'EA' && rate > 200
+}
+
 const INP     = 'w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:border-[#5B2A86] focus:ring-2 focus:ring-[#5B2A86]/20 transition'
 
 /* ── Seeded item = parsed receipt item + matched product + editable state ── */
@@ -215,6 +223,19 @@ export default function AddStockPage() {
       setError(supplierName.trim() ? 'Add at least one item with name, qty, and cost' : 'Enter supplier name')
       return
     }
+
+    // Guard: PPU=1 on a non-PC unit type with a high rate means the parser
+    // couldn't find the pack size. Storing it as-is would write the full
+    // carton/bale price as per-piece cost and destroy COGS accuracy.
+    const suspectItems = isManual
+      ? validManualItems.filter(i => isSuspiciousPpu(parseInt(i.ppu) || 1, i.unit_type, parseFloat(i.cost) || 0))
+      : activePdfItems.filter(i => isSuspiciousPpu(parseInt(i.ppu) || 1, i.unit_type, i.rate))
+    if (suspectItems.length > 0) {
+      const names = suspectItems.map(i => `"${i.name}" (${i.unit_type} · PPU=1)`).join(', ')
+      setError(`PPU looks wrong for ${suspectItems.length > 1 ? 'these items' : 'this item'}: ${names}. Unit type is not PC but PPU=1 — the cost entered looks like a carton/bale total. Fix the PPU to the number of pieces per pack before saving, otherwise buy price will be stored at carton cost instead of per-piece cost and COGS will be wrong.`)
+      return
+    }
+
     setSaving(true)
     setError('')
     const createdProductIds: string[] = [] // track for rollback
@@ -585,14 +606,29 @@ export default function AddStockPage() {
                       </td>
                       {/* PPU */}
                       <td style={{ padding: '4px 6px', textAlign: 'center' }}>
-                        <input type="number" min="1" value={item.ppu}
-                          onChange={e => updateManual(idx, { ppu: e.target.value })}
-                          disabled={item.unit_type === 'PC'}
-                          style={{
-                            width: 44, textAlign: 'center', padding: '4px 4px',
-                            border: '1px solid #E2E8F0', borderRadius: 4,
-                            fontSize: 12, fontWeight: 600, background: item.unit_type === 'PC' ? '#F5F5F5' : 'white',
-                          }} />
+                        {(() => {
+                          const ppuNum = parseInt(item.ppu) || 1
+                          const suspect = isSuspiciousPpu(ppuNum, item.unit_type, parseFloat(item.cost) || 0)
+                          return (
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                              <input type="number" min="1" value={item.ppu}
+                                onChange={e => updateManual(idx, { ppu: e.target.value })}
+                                disabled={item.unit_type === 'PC'}
+                                style={{
+                                  width: 44, textAlign: 'center', padding: '4px 4px',
+                                  border: `1.5px solid ${suspect ? AMBER : '#E2E8F0'}`, borderRadius: 4,
+                                  fontSize: 12, fontWeight: 600,
+                                  background: item.unit_type === 'PC' ? '#F5F5F5' : suspect ? '#FFFBEB' : 'white',
+                                }} />
+                              {suspect && (
+                                <span title="PPU=1 on a multi-pack unit — cost looks like a carton total. Fix PPU to pieces per pack."
+                                  style={{ fontSize: 9, color: AMBER, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 2 }}>
+                                  <AlertTriangle size={9} /> Fix PPU
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </td>
                       {/* Qty */}
                       <td style={{ padding: '4px 6px', textAlign: 'center' }}>
@@ -823,15 +859,28 @@ export default function AddStockPage() {
                         </td>
                         {/* PPU */}
                         <td style={{ padding: '6px 6px', textAlign: 'center' }}>
-                          {!isVoided ? (
-                            <input type="number" min="1" value={item.ppu}
-                              onChange={e => updatePdfItem(idx, { ppu: e.target.value })}
-                              style={{
-                                width: 44, textAlign: 'center', padding: '2px 4px',
-                                border: '1px solid #E2E8F0', borderRadius: 4,
-                                fontSize: 12, fontWeight: 600, background: 'white',
-                              }} />
-                          ) : <span className="tabnum" style={{ fontSize: 12 }}>{item.ppu}</span>}
+                          {!isVoided ? (() => {
+                            const ppuNum = parseInt(item.ppu) || 1
+                            const suspect = isSuspiciousPpu(ppuNum, item.unit_type, item.rate)
+                            return (
+                              <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                <input type="number" min="1" value={item.ppu}
+                                  onChange={e => updatePdfItem(idx, { ppu: e.target.value })}
+                                  style={{
+                                    width: 44, textAlign: 'center', padding: '2px 4px',
+                                    border: `1.5px solid ${suspect ? AMBER : '#E2E8F0'}`, borderRadius: 4,
+                                    fontSize: 12, fontWeight: 600,
+                                    background: suspect ? '#FFFBEB' : 'white',
+                                  }} />
+                                {suspect && (
+                                  <span title="PPU=1 on a multi-pack unit — cost looks like a carton total. Fix PPU to pieces per pack."
+                                    style={{ fontSize: 9, color: AMBER, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 2 }}>
+                                    <AlertTriangle size={9} /> Fix PPU
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })() : <span className="tabnum" style={{ fontSize: 12 }}>{item.ppu}</span>}
                         </td>
                         {/* Qty */}
                         <td style={{ padding: '6px 6px', textAlign: 'center' }}>
