@@ -24,8 +24,8 @@ const SHADOW  = 'var(--shadow-card)'
 /** PPU=1 on a non-piece unit type with a high rate almost certainly means the
  *  parser didn't find a pack size and left the default — the carton/bale price
  *  will be stored as per-piece cost, inflating COGS by the actual PPU factor. */
-function isSuspiciousPpu(ppu: number, unitType: string, rate: number): boolean {
-  return ppu === 1 && unitType !== 'PC' && unitType !== 'EA' && rate > 200
+function isSuspiciousPpu(ppu: number, unitType: string, _rate: number): boolean {
+  return ppu === 1 && unitType !== 'PC' && unitType !== 'EA'
 }
 
 /** Calculate sell_price_piece with guard against absurdly low values */
@@ -53,6 +53,7 @@ interface ManualItem {
   name: string
   category: string
   unit_type: UnitType
+  size: string          // pack size e.g. "20x500G", "12x750ML"
   ppu: string
   qty: string
   cost: string        // cost per unit (or per piece if PC)
@@ -61,7 +62,7 @@ interface ManualItem {
 }
 
 const emptyManualItem = (): ManualItem => ({
-  code: '', name: '', category: '', unit_type: 'PC', ppu: '1',
+  code: '', name: '', category: '', unit_type: 'PC', size: '', ppu: '1',
   qty: '', cost: '', sellPrice: '', matchedProduct: null,
 })
 
@@ -128,6 +129,7 @@ export default function AddStockPage() {
           updated.code = updated.code || updated.matchedProduct.code || ''
           updated.category = updated.category || updated.matchedProduct.category || ''
           updated.unit_type = updated.matchedProduct.unit_type
+          updated.size = updated.matchedProduct.size || ''
           updated.ppu = String(updated.matchedProduct.pieces_per_unit || 1)
         }
       }
@@ -285,13 +287,19 @@ export default function AddStockPage() {
           let productId: string
           if (item.matchedProduct) {
             productId = item.matchedProduct.id
-            if (item.code.trim() && !item.matchedProduct.code) {
-              await supabase.from('products').update({ code: item.code.trim() }).eq('id', productId)
-            }
+            // Sync editable fields back to the product
+            const prodUpdate: Record<string, unknown> = { buy_price: buyPerPc }
+            if (item.code.trim() && !item.matchedProduct.code) prodUpdate.code = item.code.trim()
+            if (item.size.trim()) prodUpdate.size = item.size.trim()
+            if (item.category) prodUpdate.category = item.category
+            if (ppu !== (item.matchedProduct.pieces_per_unit || 1)) prodUpdate.pieces_per_unit = ppu
+            if (item.unit_type !== item.matchedProduct.unit_type) prodUpdate.unit_type = item.unit_type
+            await supabase.from('products').update(prodUpdate).eq('id', productId)
           } else {
             const userSellPrice = parseFloat(item.sellPrice) || 0
             const { data: newProd, error: prodErr } = await supabase.from('products').insert({
               name: item.name.trim(), code: item.code.trim() || null,
+              size: item.size.trim() || null,
               category: item.category || null, unit_type: item.unit_type,
               pieces_per_unit: ppu, buy_price: buyPerPc, sell_price: userSellPrice,
               sell_price_piece: safeSellPricePiece(userSellPrice, ppu),
@@ -315,9 +323,15 @@ export default function AddStockPage() {
           let productId: string
           if (item.matchedProduct) {
             productId = item.matchedProduct.id
-            if (item.code && !item.matchedProduct.code) {
-              await supabase.from('products').update({ code: item.code }).eq('id', productId)
-            }
+            const buyPerPcPdf = ppu > 1 ? item.rate / ppu : item.rate
+            // Sync editable fields back to the product
+            const prodUpdate: Record<string, unknown> = { buy_price: buyPerPcPdf }
+            if (item.code && !item.matchedProduct.code) prodUpdate.code = item.code
+            if (item.pack_size) prodUpdate.size = item.pack_size
+            if (item.editCategory) prodUpdate.category = item.editCategory
+            if (ppu !== (item.matchedProduct.pieces_per_unit || 1)) prodUpdate.pieces_per_unit = ppu
+            if (item.unit_type !== item.matchedProduct.unit_type) prodUpdate.unit_type = item.unit_type
+            await supabase.from('products').update(prodUpdate).eq('id', productId)
           } else {
             productId = await createPdfProduct(item, ppu, supplierId)
             createdProductIds.push(productId)
@@ -508,9 +522,9 @@ export default function AddStockPage() {
 
       {/* ── MANUAL TAB ── */}
       {tab === 'manual' && (
-        <div className="bg-white rounded-xl overflow-hidden" style={{ boxShadow: SHADOW }}>
-          <div className="px-4 py-3 flex items-center justify-between"
-            style={{ borderBottom: '1px solid #E8E3ED' }}>
+        <div className="space-y-3">
+          {/* Header */}
+          <div className="flex items-center justify-between px-1">
             <div className="text-xs font-bold uppercase tracking-widest" style={{ color: MUTED }}>
               Items ({validManualItems.length})
             </div>
@@ -518,192 +532,205 @@ export default function AddStockPage() {
               onClick={addManualRow}
               className="flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg transition active:scale-95"
               style={{ background: '#F6F0FC', color: PRIMARY }}>
-              <Plus size={13} /> Add Row
+              <Plus size={13} /> Add Item
             </button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: '#F7F4FA', borderBottom: '2px solid #E8E3ED' }}>
-                  {[
-                    ['Code',       'left',   80],
-                    ['Item Name',  'left',   200],
-                    ['Category',   'left',   130],
-                    ['Unit',       'center', 70],
-                    ['PPU',        'center', 55],
-                    ['Qty',        'center', 65],
-                    ['Cost',       'right',  90],
-                    ['Amount',     'right',  90],
-                    ['Sell Price', 'right',  90],
-                    ['',           'center', 36],
-                  ].map(([label, align, w]) => (
-                    <th key={String(label)} style={{
-                      textAlign: align as 'left' | 'right' | 'center',
-                      width: Number(w), padding: '8px 6px',
-                      fontSize: 10, fontWeight: 800, letterSpacing: '0.1em',
-                      textTransform: 'uppercase', color: '#6B6373', whiteSpace: 'nowrap',
-                    }}>
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {manualItems.map((item, idx) => {
-                  const rawQty  = parseFloat(item.qty) || 0
-                  const rawCost = parseFloat(item.cost) || 0
-                  const lineAmt = rawQty * rawCost
-                  const isMatch = !!item.matchedProduct
-                  const rowBg   = isMatch ? '#F6FFF9' : idx % 2 === 0 ? '#fff' : '#FAFAFB'
+          {/* Item cards */}
+          {manualItems.map((item, idx) => {
+            const rawQty  = parseFloat(item.qty) || 0
+            const rawCost = parseFloat(item.cost) || 0
+            const ppuNum  = parseInt(item.ppu) || 1
+            const lineAmt = rawQty * rawCost
+            const costPerPc = ppuNum > 1 && rawCost > 0 ? rawCost / ppuNum : rawCost
+            const isMatch = !!item.matchedProduct
+            const isPC    = item.unit_type === 'PC' || item.unit_type === 'EA'
+            const suspect = isSuspiciousPpu(ppuNum, item.unit_type, rawCost)
 
-                  return (
-                    <tr key={idx} style={{ background: rowBg, borderBottom: '1px solid #F0EBF5' }}>
-                      {/* Code */}
-                      <td style={{ padding: '4px 6px' }}>
-                        <input value={item.code}
-                          onChange={e => updateManual(idx, { code: e.target.value })}
-                          placeholder="SKU"
-                          style={{
-                            width: '100%', padding: '4px 6px', border: '1px solid #E2E8F0',
-                            borderRadius: 4, fontSize: 12, fontFamily: 'monospace', background: 'white',
-                          }} />
-                      </td>
-                      {/* Item name */}
-                      <td style={{ padding: '4px 6px' }}>
-                        <input value={item.name}
-                          onChange={e => updateManual(idx, { name: e.target.value })}
-                          placeholder="Product name"
-                          style={{
-                            width: '100%', padding: '4px 6px', border: '1px solid #E2E8F0',
-                            borderRadius: 4, fontSize: 12, fontWeight: 600, background: 'white',
-                          }} />
-                        {isMatch && (
-                          <div className="text-[10px] font-bold mt-0.5" style={{ color: SUCCESS }}>
-                            ✓ Matched
-                          </div>
-                        )}
-                      </td>
-                      {/* Category */}
-                      <td style={{ padding: '4px 6px' }}>
-                        <select value={item.category}
-                          onChange={e => updateManual(idx, { category: e.target.value })}
-                          style={{
-                            width: '100%', fontSize: 11, padding: '4px 4px', borderRadius: 4,
-                            border: '1px solid #E2E8F0', background: 'white',
-                            color: item.category ? '#1E1626' : MUTED,
-                          }}>
-                          <option value="">—</option>
-                          {PRODUCT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </td>
-                      {/* Unit type */}
-                      <td style={{ padding: '4px 6px', textAlign: 'center' }}>
-                        <select value={item.unit_type}
-                          onChange={e => {
-                            const ut = e.target.value as UnitType
-                            updateManual(idx, { unit_type: ut, ppu: ut === 'PC' ? '1' : item.ppu })
-                          }}
-                          style={{
-                            fontSize: 11, padding: '4px 2px', borderRadius: 4,
-                            border: '1px solid #E2E8F0', background: 'white', fontWeight: 700,
-                          }}>
-                          {UNIT_TYPES.map(u => <option key={u} value={u}>{u}</option>)}
-                        </select>
-                      </td>
-                      {/* PPU */}
-                      <td style={{ padding: '4px 6px', textAlign: 'center' }}>
-                        {(() => {
-                          const ppuNum = parseInt(item.ppu) || 1
-                          const suspect = isSuspiciousPpu(ppuNum, item.unit_type, parseFloat(item.cost) || 0)
-                          return (
-                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                              <input type="number" min="1" value={item.ppu}
-                                onChange={e => updateManual(idx, { ppu: e.target.value })}
-                                disabled={item.unit_type === 'PC'}
-                                style={{
-                                  width: 44, textAlign: 'center', padding: '4px 4px',
-                                  border: `1.5px solid ${suspect ? AMBER : '#E2E8F0'}`, borderRadius: 4,
-                                  fontSize: 12, fontWeight: 600,
-                                  background: item.unit_type === 'PC' ? '#F5F5F5' : suspect ? '#FFFBEB' : 'white',
-                                }} />
-                              {suspect && (
-                                <span title="PPU=1 on a multi-pack unit — cost looks like a carton total. Fix PPU to pieces per pack."
-                                  style={{ fontSize: 9, color: AMBER, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 2 }}>
-                                  <AlertTriangle size={9} /> Fix PPU
-                                </span>
-                              )}
-                            </div>
-                          )
-                        })()}
-                      </td>
-                      {/* Qty */}
-                      <td style={{ padding: '4px 6px', textAlign: 'center' }}>
-                        <input type="number" min="0.5" step="0.5" inputMode="decimal"
-                          value={item.qty}
-                          onChange={e => updateManual(idx, { qty: e.target.value })}
-                          placeholder="0"
-                          style={{
-                            width: 55, textAlign: 'center', padding: '4px 4px',
-                            border: '1px solid #E2E8F0', borderRadius: 4,
-                            fontSize: 13, fontWeight: 700, background: 'white',
-                          }} />
-                      </td>
-                      {/* Cost */}
-                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-                        <input type="number" min="0" step="0.01" inputMode="decimal"
-                          value={item.cost}
-                          onChange={e => updateManual(idx, { cost: e.target.value })}
-                          placeholder="0"
-                          style={{
-                            width: 80, textAlign: 'right', padding: '4px 6px',
-                            border: '1px solid #E2E8F0', borderRadius: 4,
-                            fontSize: 12, fontWeight: 600, background: 'white',
-                          }} />
-                      </td>
-                      {/* Amount (calculated) */}
-                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-                        <span className="tabnum font-bold" style={{ fontSize: 13, color: lineAmt > 0 ? PRIMARY : MUTED }}>
-                          {lineAmt > 0 ? fmt(lineAmt) : '—'}
-                        </span>
-                      </td>
-                      {/* Sell price */}
-                      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-                        <input type="number" min="0" step="1" inputMode="decimal"
-                          value={item.sellPrice}
-                          onChange={e => updateManual(idx, { sellPrice: e.target.value })}
-                          placeholder={rawCost > 0 ? String(Math.ceil(rawCost * 1.1)) : '0'}
-                          style={{
-                            width: 80, textAlign: 'right', padding: '4px 6px',
-                            border: '1px solid #E2E8F0', borderRadius: 4,
-                            fontSize: 12, fontWeight: 700, background: 'white',
-                            color: parseFloat(item.sellPrice) > 0 ? SUCCESS : '#111',
-                          }} />
-                      </td>
-                      {/* Delete */}
-                      <td style={{ padding: '4px 6px', textAlign: 'center' }}>
-                        <button onClick={() => removeManualRow(idx)}
-                          className="w-6 h-6 rounded flex items-center justify-center"
-                          style={{ color: manualItems.length > 1 ? DANGER : '#ddd' }}
-                          disabled={manualItems.length <= 1}>
-                          <Trash2 size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+            return (
+              <div key={idx} className="bg-white rounded-xl overflow-hidden" style={{
+                boxShadow: SHADOW,
+                border: suspect ? `2px solid ${AMBER}` : isMatch ? `2px solid ${SUCCESS}` : '1px solid #E8E3ED',
+              }}>
+                {/* Card header: item number + delete */}
+                <div className="px-4 py-2 flex items-center justify-between"
+                  style={{ background: isMatch ? '#F0FFF4' : '#F7F4FA', borderBottom: '1px solid #E8E3ED' }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black" style={{ color: MUTED }}>#{idx + 1}</span>
+                    {isMatch && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#D1FAE5', color: '#065F46' }}>Matched</span>}
+                    {suspect && <span className="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#FEF3C7', color: '#92400E' }}><AlertTriangle size={9} /> Set pcs/pack</span>}
+                  </div>
+                  <button onClick={() => removeManualRow(idx)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center transition active:scale-90"
+                    style={{ color: manualItems.length > 1 ? DANGER : '#ddd' }}
+                    disabled={manualItems.length <= 1}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
 
-          {/* Add another row bar */}
-          <div style={{ borderTop: '1px solid #E8E3ED', padding: '8px 16px' }}>
-            <button onClick={addManualRow}
-              className="w-full py-2 rounded-lg text-xs font-bold transition active:scale-95"
-              style={{ background: '#F6F0FC', color: PRIMARY, border: `1px dashed #D1C4E9` }}>
-              <Plus size={13} className="inline mr-1" /> Add Another Item
-            </button>
-          </div>
+                <div className="p-4 space-y-3">
+                  {/* Row 1: Name + Code */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>Product Name</label>
+                      <input value={item.name}
+                        onChange={e => updateManual(idx, { name: e.target.value })}
+                        placeholder="e.g. DETTOL SOAP"
+                        style={{
+                          width: '100%', padding: '8px 10px', border: '1px solid #E2E8F0',
+                          borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'white',
+                        }} />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>Code</label>
+                      <input value={item.code}
+                        onChange={e => updateManual(idx, { code: e.target.value })}
+                        placeholder="SKU"
+                        style={{
+                          width: '100%', padding: '8px 10px', border: '1px solid #E2E8F0',
+                          borderRadius: 8, fontSize: 12, fontFamily: 'monospace', background: 'white',
+                        }} />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Category + Unit Type + Pack Size + Pcs/Pack */}
+                  <div className="grid grid-cols-4 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>Category</label>
+                      <select value={item.category}
+                        onChange={e => updateManual(idx, { category: e.target.value })}
+                        style={{
+                          width: '100%', fontSize: 11, padding: '8px 4px', borderRadius: 8,
+                          border: '1px solid #E2E8F0', background: 'white',
+                          color: item.category ? '#1E1626' : MUTED,
+                        }}>
+                        <option value="">—</option>
+                        {PRODUCT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>Unit Type</label>
+                      <select value={item.unit_type}
+                        onChange={e => {
+                          const ut = e.target.value as UnitType
+                          updateManual(idx, { unit_type: ut, ppu: ut === 'PC' || ut === 'EA' ? '1' : item.ppu })
+                        }}
+                        style={{
+                          width: '100%', fontSize: 12, padding: '8px 4px', borderRadius: 8,
+                          border: '1px solid #E2E8F0', background: 'white', fontWeight: 700,
+                        }}>
+                        {UNIT_TYPES.map(u => <option key={u} value={u}>{u} — {UNIT_LABELS[u]}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>Pack Size</label>
+                      <input value={item.size}
+                        onChange={e => updateManual(idx, { size: e.target.value })}
+                        placeholder={isPC ? '—' : 'e.g. 20x500G'}
+                        disabled={isPC}
+                        style={{
+                          width: '100%', padding: '8px 10px', border: '1px solid #E2E8F0',
+                          borderRadius: 8, fontSize: 12, fontWeight: 600,
+                          background: isPC ? '#F5F5F5' : 'white',
+                        }} />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: suspect ? AMBER : MUTED }}>
+                        {suspect ? 'Pcs/Pack !' : 'Pcs/Pack'}
+                      </label>
+                      <input type="number" min="1" value={item.ppu}
+                        onChange={e => updateManual(idx, { ppu: e.target.value })}
+                        disabled={isPC}
+                        placeholder={isPC ? '1' : 'e.g. 20'}
+                        style={{
+                          width: '100%', textAlign: 'center', padding: '8px 10px',
+                          border: `1.5px solid ${suspect ? AMBER : '#E2E8F0'}`, borderRadius: 8,
+                          fontSize: 14, fontWeight: 700,
+                          background: isPC ? '#F5F5F5' : suspect ? '#FFFBEB' : 'white',
+                        }} />
+                      {suspect && (
+                        <div className="mt-1 text-[9px] font-bold" style={{ color: AMBER }}>
+                          How many pieces in 1 {UNIT_LABELS[item.unit_type]?.toLowerCase() || 'pack'}?
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Row 3: Qty + Cost per unit + Sell Price */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>
+                        Qty ({isPC ? 'pcs' : UNIT_LABELS[item.unit_type]?.toLowerCase() + 's' || 'units'})
+                      </label>
+                      <input type="number" min="0.5" step="0.5" inputMode="decimal"
+                        value={item.qty}
+                        onChange={e => updateManual(idx, { qty: e.target.value })}
+                        placeholder="0"
+                        style={{
+                          width: '100%', textAlign: 'center', padding: '8px 10px',
+                          border: '1px solid #E2E8F0', borderRadius: 8,
+                          fontSize: 15, fontWeight: 700, background: 'white',
+                        }} />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>
+                        Cost / {isPC ? 'piece' : UNIT_LABELS[item.unit_type]?.toLowerCase() || 'unit'}
+                      </label>
+                      <input type="number" min="0" step="0.01" inputMode="decimal"
+                        value={item.cost}
+                        onChange={e => updateManual(idx, { cost: e.target.value })}
+                        placeholder="0"
+                        style={{
+                          width: '100%', textAlign: 'right', padding: '8px 10px',
+                          border: '1px solid #E2E8F0', borderRadius: 8,
+                          fontSize: 14, fontWeight: 600, background: 'white',
+                        }} />
+                      {/* Show per-piece breakdown for multi-unit */}
+                      {!isPC && ppuNum > 1 && rawCost > 0 && (
+                        <div className="mt-1 text-[10px] font-bold tabnum" style={{ color: PRIMARY, textAlign: 'right' }}>
+                          = {fmt(Math.round(costPerPc * 100) / 100)}/pc
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>
+                        Sell Price
+                      </label>
+                      <input type="number" min="0" step="1" inputMode="decimal"
+                        value={item.sellPrice}
+                        onChange={e => updateManual(idx, { sellPrice: e.target.value })}
+                        placeholder={rawCost > 0 ? String(Math.ceil(rawCost * 1.1)) : '0'}
+                        style={{
+                          width: '100%', textAlign: 'right', padding: '8px 10px',
+                          border: '1px solid #E2E8F0', borderRadius: 8,
+                          fontSize: 14, fontWeight: 700, background: 'white',
+                          color: parseFloat(item.sellPrice) > 0 ? SUCCESS : '#111',
+                        }} />
+                    </div>
+                  </div>
+
+                  {/* Summary bar */}
+                  {lineAmt > 0 && (
+                    <div className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: '#F7F4FA' }}>
+                      <span className="text-[10px] font-bold uppercase" style={{ color: MUTED }}>
+                        {rawQty} × {fmt(rawCost)} {!isPC && ppuNum > 1 ? `(${ppuNum} pcs each)` : ''}
+                      </span>
+                      <span className="tabnum font-black" style={{ fontSize: 14, color: PRIMARY }}>
+                        {fmt(lineAmt)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Add another item */}
+          <button onClick={addManualRow}
+            className="w-full py-3 rounded-xl text-xs font-bold transition active:scale-95"
+            style={{ background: '#F6F0FC', color: PRIMARY, border: `1px dashed #D1C4E9` }}>
+            <Plus size={13} className="inline mr-1" /> Add Another Item
+          </button>
         </div>
       )}
 
