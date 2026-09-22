@@ -99,17 +99,22 @@ export function inferPiecesPerUnit(packSize: string, unitType: string): number {
     return parseInt(bulkKg[1])
   }
 
-  // "10KG", "5LTR", "500G" — single weight/volume unit (sealed, not sold by weight)
-  const singleWeight = s.match(/^\d+(?:G|GMS|ML|KG|LTR|L)$/i)
+  // "10KG", "5LTR", "500G", "750ML CTN" — single weight/volume unit (sealed, not sold by weight)
+  // Allow trailing junk (e.g. "750MLCTN", "500G(CTN)") after the unit
+  const singleWeight = s.match(/^\d+(?:G|GMS|ML|KG|LTR|L)\b/i)
   if (singleWeight) return 1
 
   // "5xAA", "6xAAA" — count × non-numeric
   const countXother = s.match(/^(\d+)X/i)
   if (countXother) return parseInt(countXother[1])
 
-  // Fallback: first number
+  // Fallback: first number, capped at 240 (largest realistic carton size)
   const firstNum = s.match(/^(\d+)/)
-  return firstNum ? parseInt(firstNum[1]) : 1
+  if (firstNum) {
+    const n = parseInt(firstNum[1])
+    return n > 240 ? 1 : n
+  }
+  return 1
 }
 
 // ── Main Parser ─────────────────────────────────────────────
