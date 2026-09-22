@@ -92,7 +92,14 @@ export function inferPiecesPerUnit(packSize: string, unitType: string): number {
   const countXweight = s.match(/^(\d+)X[\d.]+(?:G|GMS|ML|KG|LTR|L)\b/i)
   if (countXweight) return parseInt(countXweight[1])
 
-  // "10KG", "5LTR" — single weight/volume unit
+  // "50KG", "25KG", "10KG" with bulk unit type — bag sold by the KG
+  // ppu = the KG number so the system can sell by KG fractions
+  const bulkKg = s.match(/^(\d+)KG$/i)
+  if (bulkKg && ['BAG', 'BAL'].includes(unitType.toUpperCase())) {
+    return parseInt(bulkKg[1])
+  }
+
+  // "10KG", "5LTR", "500G" — single weight/volume unit (sealed, not sold by weight)
   const singleWeight = s.match(/^\d+(?:G|GMS|ML|KG|LTR|L)$/i)
   if (singleWeight) return 1
 

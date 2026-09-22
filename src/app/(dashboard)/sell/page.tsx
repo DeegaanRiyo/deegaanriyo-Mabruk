@@ -913,14 +913,14 @@ export default function SellPage() {
 
                         {/* Stock */}
                         <td className="py-2 text-center">
+                          {(() => { const wt = isWeightProduct(p); return (<>
                           <div className="tabnum font-black" style={{ fontSize: 12, color: low ? C.danger : C.fg }}>
-                            {multi ? Math.floor(p.stock_qty / ppu) : p.stock_qty}
+                            {wt ? `${p.stock_qty}` : multi ? Math.floor(p.stock_qty / ppu) : p.stock_qty}
                           </div>
-                          {multi && (
-                            <div className="tabnum" style={{ fontSize: 8, color: C.muted, fontWeight: 600 }}>
-                              {p.stock_qty}{isWeightProduct(p) ? 'kg' : 'pc'}
-                            </div>
-                          )}
+                          <div className="tabnum" style={{ fontSize: 8, color: C.muted, fontWeight: 600 }}>
+                            {wt ? 'kg' : multi ? `${p.stock_qty}pc` : 'pcs'}
+                          </div>
+                          </>)})()}
                           {low && <div style={{ fontSize: 7, color: C.danger, fontWeight: 900, letterSpacing: '0.1em' }}>LOW</div>}
                         </td>
 

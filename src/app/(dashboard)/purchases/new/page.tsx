@@ -28,6 +28,13 @@ function isSuspiciousPpu(ppu: number, unitType: string, rate: number): boolean {
   return ppu === 1 && unitType !== 'PC' && unitType !== 'EA' && rate > 200
 }
 
+/** Calculate sell_price_piece with guard against absurdly low values */
+function safeSellPricePiece(sellPrice: number, ppu: number): number | null {
+  if (ppu <= 1 || sellPrice <= 0) return null
+  const pp = Math.round(sellPrice / ppu)
+  return pp < 10 ? null : pp
+}
+
 const INP     = 'w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:border-[#5B2A86] focus:ring-2 focus:ring-[#5B2A86]/20 transition'
 
 /* ── Seeded item = parsed receipt item + matched product + editable state ── */
@@ -287,7 +294,7 @@ export default function AddStockPage() {
               name: item.name.trim(), code: item.code.trim() || null,
               category: item.category || null, unit_type: item.unit_type,
               pieces_per_unit: ppu, buy_price: buyPerPc, sell_price: userSellPrice,
-              sell_price_piece: ppu > 1 && userSellPrice > 0 ? Math.round(userSellPrice / ppu) : null,
+              sell_price_piece: safeSellPricePiece(userSellPrice, ppu),
               supplier_name: supplierName.trim(), supplier_id: supplierId, min_stock: 5,
             }).select('id').single()
             if (prodErr || !newProd) throw new Error(`Failed to create product: ${item.name}`)
@@ -297,7 +304,7 @@ export default function AddStockPage() {
 
           rpcItems.push({ product_id: productId, product_name: item.name.trim(), quantity: pieces, buy_price: buyPerPc, line_total: lineTotal, supplier_code: item.code.trim() || null, vat_class: null, unit_type: item.unit_type })
           const sp = parseFloat(item.sellPrice) || 0
-          if (sp > 0) sellPriceUpdates.push({ id: productId, sell_price: sp, sell_price_piece: ppu > 1 ? Math.round(sp / ppu) : null })
+          if (sp > 0) sellPriceUpdates.push({ id: productId, sell_price: sp, sell_price_piece: safeSellPricePiece(sp, ppu) })
         }
       } else {
         for (const item of pdfItems) {
@@ -321,7 +328,7 @@ export default function AddStockPage() {
 
           rpcItems.push({ product_id: productId, product_name: item.name, quantity: pieces, buy_price: buyPerPc, line_total: item.amount, supplier_code: item.code, vat_class: item.vat_class, unit_type: item.unit_type })
           const sp = parseFloat(item.sellPrice) || 0
-          if (sp > 0) sellPriceUpdates.push({ id: productId, sell_price: sp, sell_price_piece: ppu > 1 ? Math.round(sp / ppu) : null })
+          if (sp > 0) sellPriceUpdates.push({ id: productId, sell_price: sp, sell_price_piece: safeSellPricePiece(sp, ppu) })
         }
       }
 
@@ -379,7 +386,7 @@ export default function AddStockPage() {
       pieces_per_unit: ppu,
       buy_price:       buyPerPc,
       sell_price:      userSellPrice,
-      sell_price_piece: ppu > 1 && userSellPrice > 0 ? Math.round(userSellPrice / ppu) : null,
+      sell_price_piece: safeSellPricePiece(userSellPrice, ppu),
       category:        item.editCategory || null,
       vat_class:       item.vat_class || 'A',
       supplier_name:   supplierName.trim() || null,

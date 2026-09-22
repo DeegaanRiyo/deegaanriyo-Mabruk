@@ -66,7 +66,9 @@ export function getEffectiveSellPricePiece(p: {
   if (p.sell_price_piece && p.sell_price_piece > 0) return p.sell_price_piece
   if (p.sell_price > 0) {
     const ppu = p.pieces_per_unit || 1
-    return ppu > 1 ? Math.round(p.sell_price / ppu) : p.sell_price
+    const derived = ppu > 1 ? Math.round(p.sell_price / ppu) : p.sell_price
+    // If derived price is unreasonably low (< cost), fall through to cost markup
+    if (derived >= Math.ceil(p.buy_price * 1.1)) return derived
   }
   // Fallback: cost + 10%
   return Math.ceil(p.buy_price * 1.1)
