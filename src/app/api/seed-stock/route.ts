@@ -503,7 +503,10 @@ export async function POST(req: Request) {
   for (const [code, p] of productMap) {
     const buyPricePerPiece = p.ppu > 1 ? Math.round((p.unitCost / p.ppu) * 100) / 100 : p.unitCost
     const sellPrice = p.unitCost  // default: sell at cost (user sets real prices)
-    const sellPricePiece = p.ppu > 1 ? Math.round(sellPrice / p.ppu) : null
+    const rawPieceSell = p.ppu > 1 ? Math.round(sellPrice / p.ppu) : null
+    // If per-piece price rounds to < 10 KES it's probably wrong (carton cost
+    // divided by many pieces) — leave NULL so user sets the real price.
+    const sellPricePiece = rawPieceSell !== null && rawPieceSell < 10 ? null : rawPieceSell
 
     const supplierId = supplierIds[p.supplierKey] || null
     const supplierName = SUPPLIERS.find(s => s.key === p.supplierKey)?.name || null

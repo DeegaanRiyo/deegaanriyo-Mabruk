@@ -284,10 +284,25 @@ export default function ReceiptPage() {
   function handlePrint() {
     if (!sale) return
     const html = buildPrintHTML(sale, items, servedBy, paperSize)
-    const win = window.open('', '_blank', 'width=440,height=720')
-    if (!win) { alert('Pop-up blocked — allow pop-ups to print.'); return }
-    win.document.write(html)
-    win.document.close()
+
+    // Use a hidden iframe — avoids popup blockers and prints directly
+    // to the default printer (the receipt/thermal printer).
+    let frame = document.getElementById('receipt-print-frame') as HTMLIFrameElement | null
+    if (!frame) {
+      frame = document.createElement('iframe')
+      frame.id = 'receipt-print-frame'
+      frame.style.cssText = 'position:fixed;width:0;height:0;border:none;left:-9999px;top:-9999px'
+      document.body.appendChild(frame)
+    }
+    const doc = frame.contentDocument || frame.contentWindow?.document
+    if (!doc) { alert('Could not access print frame'); return }
+    doc.open()
+    doc.write(html.replace(/<script>.*<\/script>/g, ''))  // strip auto-print script
+    doc.close()
+    // Wait for content to render, then print
+    setTimeout(() => {
+      frame!.contentWindow?.print()
+    }, 250)
   }
 
   function handleWhatsApp() {
